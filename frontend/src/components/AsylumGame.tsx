@@ -29,6 +29,7 @@ export default function AsylumGame({ wardConfig, sessionId, covenId = 0 }: Props
   const [msgColor, setMsgColor] = useState('#8b0000');
   const [locked, setLocked] = useState(false);
   const [outcome, setOutcome] = useState<'playing' | 'escape_pending' | 'win' | 'error'>('playing');
+  const [errorMsg, setErrorMsg] = useState('');
   const [nearObj, setNearObj] = useState('');
   const [claimPending, setClaimPending] = useState(false);
   const [claimDone, setClaimDone] = useState(false);
@@ -112,6 +113,7 @@ export default function AsylumGame({ wardConfig, sessionId, covenId = 0 }: Props
       setOutcome('win');
     } catch (e: any) {
       console.error(e);
+      setErrorMsg(e.shortMessage || e.message || 'Unknown error');
       setOutcome('error');
     }
   }, [escapeFlow, sessionId, publicClient]);
@@ -271,7 +273,9 @@ export default function AsylumGame({ wardConfig, sessionId, covenId = 0 }: Props
     return (
       <div style={{ width: 800, height: 600, background: '#1a0a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px solid #3a0a0a', margin: '0 auto' }}>
         <h1 style={{ fontFamily: 'serif', fontSize: '2rem', color: '#ff3333' }}>ESCAPE FAILED</h1>
-        <p style={{ color: '#aa5555', fontFamily: 'monospace', marginTop: 10 }}>The Warden rejected your proof or the chain reverted.</p>
+        <p style={{ color: '#aa5555', fontFamily: 'monospace', marginTop: 10, maxWidth: 600, textAlign: 'center' }}>
+          {errorMsg || 'The Warden rejected your proof or the chain reverted.'}
+        </p>
         <button onClick={() => setOutcome('playing')} style={{ marginTop: 24, padding: '10px 24px', background: 'none', border: '1px solid #ff3333', color: '#ff3333', cursor: 'pointer', fontFamily: 'monospace' }}>Try the door again</button>
       </div>
     );
