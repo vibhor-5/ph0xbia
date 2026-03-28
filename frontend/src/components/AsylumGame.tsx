@@ -1,7 +1,7 @@
 'use client';
 /* ──────────────────────────────────────────────────────────────────────
  *  AsylumGame — First-Person 3D Horror Room (Vanilla Three.js)
- *  WASD + mouse look. Uses generated texture assets on all surfaces.
+ *  WASD + mouse look. 6 interactive puzzles with user input.
  * ────────────────────────────────────────────────────────────────────── */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { useAccount, usePublicClient } from 'wagmi';
 import { useEscapeFlow } from '@/hooks/useEscapeRoom';
 import { supabase } from '@/lib/supabase/client';
-import type { WardConfig, WardObject } from '@/types/game';
+import type { WardConfig, WardObject, PuzzleConfig, PuzzleState, PuzzleId } from '@/types/game';
 import { DEFAULT_SANITY_CONFIG } from '@/types/game';
 
 interface Props { 
@@ -22,12 +22,20 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
   const engineRef = useRef<GameEngine | null>(null);
   const [sanity, setSanity] = useState(100);
   const [clues, setClues] = useState(0);
-  const [puzzles, setPuzzles] = useState(0);
+  const [puzzlesSolved, setPuzzlesSolved] = useState(0);
   const [msg, setMsg] = useState('');
   const [msgColor, setMsgColor] = useState('#8b0000');
   const [locked, setLocked] = useState(false);
   const [outcome, setOutcome] = useState<'playing' | 'escape_pending' | 'win' | 'error'>('playing');
   const [nearObj, setNearObj] = useState('');
+  // Puzzle modal state
+  const [activePuzzle, setActivePuzzle] = useState<PuzzleState | null>(null);
+  const [puzzleInput, setPuzzleInput] = useState('');
+  // Hints journal
+  const [hints, setHints] = useState<string[]>([]);
+  const [showJournal, setShowJournal] = useState(false);
+  // Track which puzzles are solved for HUD
+  const [solvedPuzzles, setSolvedPuzzles] = useState<Set<PuzzleId>>(new Set());
 
   const { address } = useAccount();
   const publicClient = usePublicClient();
@@ -44,7 +52,7 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
       await supabase.from('task_state').insert({
         session_id: sessionId.toString(),
         player_addr: address.toLowerCase(),
-        coven_id: 1, // Single player coven default
+        coven_id: 1,
         action: 'puzzle_solved',
         object_id: `puzzle_${puzzleIdx}`
       });
@@ -68,9 +76,68 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
     }
   }, [escapeFlow, sessionId, publicClient]);
 
-  const callbacksRef = useRef({ setSanity, setClues, setPuzzles, showMsg, onPuzzleSolved, onExitReached, setLocked, setNearObj });
+  // Puzzle modal open callback from engine
+  const openPuzzleModal = useCallback((config: PuzzleConfig) => {
+    if (document.pointerLockElement) document.exitPointerLock();
+    setActivePuzzle({
+      puzzleId: config.id,
+      config,
+      playerInput: '',
+      attempts: 0,
+      feedback: '',
+      feedbackColor: '#8b0000',
+    });
+    setPuzzleInput('');
+  }, []);
+
+  // Hint discovery callback
+  const onHintDiscovered = useCallback((hintText: string) => {
+    setHints(prev => {
+      if (prev.includes(hintText)) return prev;
+      return [...prev, hintText];
+    });
+  }, []);
+
+  // Handle puzzle submission
+  const submitPuzzle = useCallback(() => {
+    if (!activePuzzle) return;
+    const answer = puzzleInput.trim().toUpperCase();
+    const correct = activePuzzle.config.answer.toUpperCase();
+    if (answer === correct) {
+      // Puzzle solved!
+      const pid = activePuzzle.puzzleId;
+      setSolvedPuzzles(prev => {
+        const next = new Set(prev);
+        next.add(pid);
+        return next;
+      });
+      setPuzzlesSolved(prev => prev + 1);
+      showMsg(`🧩 PUZZLE SOLVED: ${activePuzzle.config.title}`, '#2d6a4f');
+      onPuzzleSolved(parseInt(pid.replace('P', '')));
+      // Tell engine this puzzle is solved
+      engineRef.current?.markPuzzleSolved(pid);
+      setActivePuzzle(null);
+      setPuzzleInput('');
+      // Relock pointer
+      setTimeout(() => containerRef.current?.requestPointerLock(), 200);
+    } else {
+      // Wrong answer — sanity drain
+      setActivePuzzle(prev => prev ? {
+        ...prev,
+        attempts: prev.attempts + 1,
+        feedback: `Wrong! "${answer}" is not correct. (Attempt ${prev.attempts + 1})`,
+        feedbackColor: '#ff3333',
+      } : null);
+      setSanity(s => Math.max(0, s + DEFAULT_SANITY_CONFIG.drainRates.puzzle_fail));
+      if (engineRef.current) {
+        engineRef.current.drainSanity(DEFAULT_SANITY_CONFIG.drainRates.puzzle_fail);
+      }
+    }
+  }, [activePuzzle, puzzleInput, showMsg, onPuzzleSolved]);
+
+  const callbacksRef = useRef({ setSanity, setClues, setPuzzlesSolved, showMsg, onPuzzleSolved, onExitReached, setLocked, setNearObj, openPuzzleModal, onHintDiscovered });
   useEffect(() => {
-    callbacksRef.current = { setSanity, setClues, setPuzzles, showMsg, onPuzzleSolved, onExitReached, setLocked, setNearObj };
+    callbacksRef.current = { setSanity, setClues, setPuzzlesSolved, showMsg, onPuzzleSolved, onExitReached, setLocked, setNearObj, openPuzzleModal, onHintDiscovered };
   });
 
   useEffect(() => {
@@ -80,22 +147,49 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
       { 
         setSanity: (fn) => callbacksRef.current.setSanity(fn),
         setClues: (fn) => callbacksRef.current.setClues(fn),
-        setPuzzles: (fn) => callbacksRef.current.setPuzzles(fn),
+        setPuzzles: (fn) => callbacksRef.current.setPuzzlesSolved(fn),
         showMsg: (t, c) => callbacksRef.current.showMsg(t, c),
         onPuzzleSolved: (i) => callbacksRef.current.onPuzzleSolved(i),
         onExitReached: () => callbacksRef.current.onExitReached(),
         setLocked: (l) => callbacksRef.current.setLocked(l),
-        setNearObj: (n) => callbacksRef.current.setNearObj(n)
+        setNearObj: (n) => callbacksRef.current.setNearObj(n),
+        openPuzzleModal: (cfg) => callbacksRef.current.openPuzzleModal(cfg),
+        onHintDiscovered: (h) => callbacksRef.current.onHintDiscovered(h),
       },
     );
     return () => { engineRef.current?.dispose(); engineRef.current = null; };
   }, []);
 
+  // Check if all 3 puzzles solved → spawn exit
+  useEffect(() => {
+    if (solvedPuzzles.size === 3 && engineRef.current) {
+      engineRef.current.spawnExit();
+      showMsg('🚪 ALL PUZZLES SOLVED! The exit has appeared...', '#2d6a4f');
+    }
+  }, [solvedPuzzles.size, showMsg]);
+
+  // Toggle journal with Q key
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'q' && !activePuzzle) {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        setShowJournal(prev => !prev);
+      }
+      if (e.key === 'Escape' && activePuzzle) {
+        setActivePuzzle(null);
+        setPuzzleInput('');
+        setTimeout(() => containerRef.current?.requestPointerLock(), 200);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [activePuzzle]);
+
   if (outcome === 'win') {
     return (
       <div style={{ width: 800, height: 600, background: '#0a1a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px solid #1a1a2e', margin: '0 auto' }}>
         <h1 style={{ fontFamily: 'serif', fontSize: '3rem', color: '#2d6a4f', textShadow: '0 0 30px rgba(45,106,79,0.5)' }}>YOU ESCAPED</h1>
-        <p style={{ color: '#6a8a6a', fontFamily: 'monospace', marginTop: 10 }}>Session resolved on Monad. Your reward is secure.</p>
+        <p style={{ color: '#6a8a6a', fontFamily: 'monospace', marginTop: 10 }}>All 3 puzzles solved. Session resolved on Monad. Your reward is secure.</p>
         <button onClick={() => window.location.href = '/'} style={{ marginTop: 24, padding: '10px 24px', background: 'none', border: '1px solid #2d6a4f', color: '#2d6a4f', cursor: 'pointer', fontFamily: 'monospace' }}>Return to Lobby</button>
       </div>
     );
@@ -124,20 +218,34 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
     <div style={{ position: 'relative', width: 800, height: 600, margin: '0 auto', border: '2px solid #1a1a2e', borderRadius: 4, overflow: 'hidden' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-      {!locked && (
+      {!locked && !activePuzzle && (
         <div onClick={() => containerRef.current?.requestPointerLock()}
           style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.75)', zIndex: 20, cursor: 'pointer', flexDirection: 'column', gap: 10 }}>
           <p style={{ color: '#8b0000', fontFamily: 'monospace', fontSize: '1.2rem', animation: 'pulse 2s ease-in-out infinite' }}>CLICK TO ENTER THE ASYLUM</p>
-          <p style={{ color: '#555', fontFamily: 'monospace', fontSize: '0.7rem' }}>WASD move · Mouse look · E interact · ESC release</p>
+          <p style={{ color: '#555', fontFamily: 'monospace', fontSize: '0.7rem' }}>WASD move · Mouse look · E interact · Q journal · ESC release</p>
         </div>
       )}
 
       {/* HUD */}
       <div style={{ position: 'absolute', top: 0, left: 0, padding: 10, zIndex: 10, display: 'flex', gap: 12, fontFamily: 'monospace', fontSize: 12 }}>
         <span style={{ color: sanity > 50 ? '#cc3333' : '#ff4400', background: 'rgba(0,0,0,0.7)', padding: '3px 8px' }}>❤ {Math.floor(sanity)}%</span>
-        <span style={{ color: '#bfa14a', background: 'rgba(0,0,0,0.7)', padding: '3px 8px' }}>🔍 {clues}/3</span>
-        <span style={{ color: '#2d6a4f', background: 'rgba(0,0,0,0.7)', padding: '3px 8px' }}>🧩 {puzzles}/3</span>
+        <span style={{ color: '#bfa14a', background: 'rgba(0,0,0,0.7)', padding: '3px 8px' }}>📝 {hints.length} hints</span>
+        <span style={{ color: '#2d6a4f', background: 'rgba(0,0,0,0.7)', padding: '3px 8px' }}>🧩 {solvedPuzzles.size}/3</span>
       </div>
+
+      {/* Puzzle progress indicators */}
+      <div style={{ position: 'absolute', top: 28, left: 10, zIndex: 10, display: 'flex', gap: 4, fontFamily: 'monospace', fontSize: 9 }}>
+        {wardConfig.puzzles.map(p => p.id).map((pid, idx) => (
+          <span key={pid} style={{
+            width: 18, height: 18, borderRadius: 3,
+            background: solvedPuzzles.has(pid) ? '#2d6a4f' : 'rgba(40,40,40,0.7)',
+            color: solvedPuzzles.has(pid) ? '#fff' : '#555',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: `1px solid ${solvedPuzzles.has(pid) ? '#2d6a4f' : '#333'}`,
+          }}>{solvedPuzzles.has(pid) ? '✓' : (idx + 1).toString()}</span>
+        ))}
+      </div>
+
       <div style={{ position: 'absolute', top: 8, right: 8, fontFamily: 'monospace', fontSize: 10, color: '#ff6600', background: 'rgba(0,0,0,0.8)', padding: '2px 6px', border: '1px solid #ff6600', zIndex: 10 }}>DEV</div>
 
       {/* Crosshair */}
@@ -147,9 +255,94 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
       </div>}
 
       {nearObj && locked && <div style={{ position: 'absolute', top: '62%', left: '50%', transform: 'translateX(-50%)', fontFamily: 'monospace', fontSize: 11, color: '#bfa14a', background: 'rgba(0,0,0,0.7)', padding: '3px 12px', zIndex: 10, pointerEvents: 'none' }}>[E] {nearObj}</div>}
-      {msg && <div style={{ position: 'absolute', bottom: 50, left: '50%', transform: 'translateX(-50%)', fontFamily: 'monospace', fontSize: 13, color: msgColor, background: 'rgba(0,0,0,0.9)', padding: '8px 20px', zIndex: 15, border: `1px solid ${msgColor}33` }}>{msg}</div>}
-      {locked && <div style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', fontFamily: 'monospace', fontSize: 9, color: '#444', zIndex: 10 }}>WASD move · Mouse look · E interact</div>}
+      {msg && <div style={{ position: 'absolute', bottom: 50, left: '50%', transform: 'translateX(-50%)', fontFamily: 'monospace', fontSize: 13, color: msgColor, background: 'rgba(0,0,0,0.9)', padding: '8px 20px', zIndex: 15, border: `1px solid ${msgColor}33`, maxWidth: 350, textAlign: 'center' }}>{msg}</div>}
+      {locked && <div style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', fontFamily: 'monospace', fontSize: 9, color: '#444', zIndex: 10 }}>WASD move · Mouse look · E interact · Q journal</div>}
       {sanity < 60 && <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 8, boxShadow: `inset 0 0 ${70 - sanity}px rgba(${sanity < 30 ? '150,0,0' : '80,0,0'},${(60 - sanity) / 120})` }} />}
+
+      {/* ═══ PUZZLE MODAL ═══ */}
+      {activePuzzle && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 30,
+          background: 'rgba(0,0,0,0.92)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            width: 420, background: '#0c0c14', border: '2px solid #2a1a0a',
+            borderRadius: 6, padding: 24, fontFamily: 'monospace',
+          }}>
+            <h2 style={{ color: '#8b0000', fontSize: 16, marginBottom: 12, textAlign: 'center' }}>
+              {activePuzzle.config.title}
+            </h2>
+            <div style={{ color: '#ccc', fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 16 }}>
+              {activePuzzle.config.description}
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); submitPuzzle(); }} style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={puzzleInput}
+                onChange={(e) => setPuzzleInput(e.target.value)}
+                placeholder="Type your answer..."
+                autoFocus
+                style={{
+                  flex: 1, padding: '8px 12px', background: '#1a1a2e',
+                  border: '1px solid #333', color: '#f5f0e1',
+                  fontFamily: 'monospace', fontSize: 13, outline: 'none',
+                  borderRadius: 3,
+                }}
+              />
+              <button type="submit" style={{
+                padding: '8px 16px', background: '#2d6a4f', border: 'none',
+                color: '#fff', fontFamily: 'monospace', fontSize: 12,
+                cursor: 'pointer', borderRadius: 3,
+              }}>Submit</button>
+            </form>
+            {activePuzzle.feedback && (
+              <p style={{ color: activePuzzle.feedbackColor, fontSize: 11, marginTop: 10, textAlign: 'center' }}>
+                {activePuzzle.feedback}
+              </p>
+            )}
+            <p style={{ color: '#444', fontSize: 9, marginTop: 12, textAlign: 'center' }}>
+              Press ESC to close without answering
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ HINTS JOURNAL ═══ */}
+      {showJournal && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 25,
+          background: 'rgba(0,0,0,0.88)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            width: 380, maxHeight: 450, background: '#0c0c14',
+            border: '2px solid #bfa14a33', borderRadius: 6,
+            padding: 20, fontFamily: 'monospace', overflowY: 'auto',
+          }}>
+            <h2 style={{ color: '#bfa14a', fontSize: 14, marginBottom: 12, textAlign: 'center' }}>
+              📓 INVESTIGATION JOURNAL
+            </h2>
+            {hints.length === 0 ? (
+              <p style={{ color: '#555', fontSize: 11, textAlign: 'center', fontStyle: 'italic' }}>
+                No hints discovered yet. Explore the asylum and investigate objects...
+              </p>
+            ) : (
+              hints.map((hint, i) => (
+                <div key={i} style={{
+                  color: '#ccc', fontSize: 10, lineHeight: 1.5,
+                  padding: '8px 0', borderBottom: '1px solid #1a1a2e',
+                }}>
+                  {hint}
+                </div>
+              ))
+            )}
+            <p style={{ color: '#444', fontSize: 9, marginTop: 12, textAlign: 'center' }}>
+              Press Q to close
+            </p>
+          </div>
+        </div>
+      )}
 
       <style>{`@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }`}</style>
     </div>
@@ -169,6 +362,8 @@ interface CB {
   onExitReached: () => void;
   setLocked: (l: boolean) => void;
   setNearObj: (n: string) => void;
+  openPuzzleModal: (config: PuzzleConfig) => void;
+  onHintDiscovered: (hintText: string) => void;
 }
 
 // Texture paths — pre-generated assets in public/textures/
@@ -295,6 +490,7 @@ class GameEngine {
   private objMeshes: { mesh: THREE.Group; obj: WardObject; glow: THREE.Mesh; label: string }[] = [];
   private flickerLights: { light: THREE.PointLight; bulbMat: THREE.MeshStandardMaterial; speed: number; base: number }[] = [];
   private dustGeo: THREE.BufferGeometry | null = null;
+  private solvedPuzzleIds = new Set<string>();
 
   constructor(el: HTMLDivElement, wc: WardConfig, cb: CB) {
     this.el = el; this.wc = wc; this.cb = cb;
@@ -707,10 +903,12 @@ class GameEngine {
   // ═══════════════════════════════════════════════════════════════════
 
   private handleKeyDown = (e: KeyboardEvent) => { 
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     this.keys[e.key.toLowerCase()] = true; 
     if (e.key.toLowerCase() === 'e') this.interact(); 
   };
   private handleKeyUp = (e: KeyboardEvent) => { 
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     this.keys[e.key.toLowerCase()] = false; 
   };
   private handlePointerLock = () => { 
@@ -739,10 +937,22 @@ class GameEngine {
     });
     if (!best) { this.cb.showMsg('Nothing within reach...', '#555'); return; }
     const { obj, glow } = this.objMeshes[(best as { idx: number; dist: number }).idx];
-    if (this.investigated.has(obj.id)) { this.cb.showMsg('Already investigated.', '#444'); return; }
+    if (this.investigated.has(obj.id)) {
+      // Allow re-opening a puzzle if it's not yet solved
+      if (obj.puzzleId && !this.solvedPuzzleIds.has(obj.puzzleId)) {
+        const puzzleConfig = this.wc.puzzles.find(p => p.id === obj.puzzleId);
+        if (puzzleConfig) {
+          this.cb.openPuzzleModal(puzzleConfig);
+        }
+        return;
+      }
+      this.cb.showMsg('Already investigated.', '#444');
+      return;
+    }
     this.investigated.add(obj.id);
     glow.visible = false;
 
+    // Scare objects — jump scare effect
     if (obj.isScary) {
       this.sanity = Math.max(0, this.sanity + DEFAULT_SANITY_CONFIG.drainRates.jump_scare);
       this.cb.setSanity(() => this.sanity);
@@ -754,34 +964,69 @@ class GameEngine {
         this.camera.position.y = oy + (Math.random() - 0.5) * 0.04;
         requestAnimationFrame(sh);
       }; sh();
+      // Still reveal hint if scare object has one
+      if (obj.hintForPuzzle && obj.hintText) {
+        setTimeout(() => {
+          this.cb.onHintDiscovered(obj.hintText!);
+          this.cb.showMsg('📝 You found a hint! Press Q to view journal.', '#bfa14a');
+        }, 500);
+      }
       return;
     }
 
-    if (obj.hasClue) {
-      this.clueCount++;
-      this.cb.setClues(() => this.clueCount);
-      this.cb.showMsg(`📄 CLUE ${this.clueCount}/3 FOUND`, '#2d6a4f');
-      if (this.clueCount >= 3) {
-        this.cb.showMsg('All clues! Solving puzzles...', '#bfa14a');
-        for (let i = 0; i < 3; i++) {
-          setTimeout(() => {
-            this.puzzleCount++;
-            this.cb.setPuzzles(() => this.puzzleCount);
-            this.cb.onPuzzleSolved(this.puzzleCount);
-            this.cb.showMsg(`🧩 Puzzle ${this.puzzleCount}/3!`, '#2d6a4f');
-            if (this.puzzleCount >= 3) setTimeout(() => this.spawnExit(), 1500);
-          }, 2000 + i * 2500);
-        }
+    // Puzzle objects — open the puzzle modal
+    if (obj.puzzleId) {
+      if (this.solvedPuzzleIds.has(obj.puzzleId)) {
+        this.cb.showMsg('This puzzle is already solved. ✓', '#2d6a4f');
+        return;
       }
-    } else {
-      this.cb.showMsg(obj.flavorText || 'Dust and silence...', '#8b0000');
-      this.sanity = Math.max(0, this.sanity + DEFAULT_SANITY_CONFIG.drainRates.red_herring);
-      this.cb.setSanity(() => this.sanity);
+      const puzzleConfig = this.wc.puzzles.find(p => p.id === obj.puzzleId);
+      if (puzzleConfig) {
+        this.cb.openPuzzleModal(puzzleConfig);
+        return;
+      }
     }
+
+    // Hint objects — reveal a hint for a puzzle
+    if (obj.hintForPuzzle && obj.hintText) {
+      this.cb.onHintDiscovered(obj.hintText);
+      this.cb.showMsg('📝 Hint discovered! Press Q to view your journal.', '#bfa14a');
+      return;
+    }
+
+    // Plain flavor text objects
+    this.cb.showMsg(obj.flavorText || 'Dust and silence...', '#8b0000');
+    this.sanity = Math.max(0, this.sanity + DEFAULT_SANITY_CONFIG.drainRates.red_herring);
+    this.cb.setSanity(() => this.sanity);
   }
 
-  private spawnExit(): void {
-    this.cb.showMsg('🚪 EXIT APPEARED on the far wall!', '#2d6a4f');
+  // ═══════════════════════════════════════════════════════════════════
+  // PUBLIC API — called from React component
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Mark a puzzle as solved (called by React after successful input) */
+  markPuzzleSolved(puzzleId: PuzzleId): void {
+    this.solvedPuzzleIds.add(puzzleId);
+    this.puzzleCount++;
+    // Change the glow ring of the solved puzzle object to green
+    this.objMeshes.forEach(({ obj, glow }) => {
+      if (obj.puzzleId === puzzleId) {
+        const mat = glow.material as THREE.MeshStandardMaterial;
+        mat.color.setHex(0x2d6a4f);
+        mat.emissive.setHex(0x2d6a4f);
+        glow.visible = true; // Show solved glow
+      }
+    });
+  }
+
+  /** Drain sanity from React (e.g. wrong puzzle answer) */
+  drainSanity(amount: number): void {
+    this.sanity = Math.max(0, this.sanity + amount);
+  }
+
+  /** Spawn the exit door (called when all 6 puzzles are solved) */
+  spawnExit(): void {
+    if (this.exitMesh) return; // Already spawned
     this.exitMesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.8, 2.2, 0.2),
       new THREE.MeshStandardMaterial({ color: 0x2d6a4f, emissive: new THREE.Color(0x2d6a4f), emissiveIntensity: 2, transparent: true, opacity: 0.9 }),

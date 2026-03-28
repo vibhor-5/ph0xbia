@@ -82,7 +82,7 @@ function PlayClient() {
       <h2 className="play-header">ASHWORTH ASYLUM</h2>
       {sessionId !== null && <AsylumGame wardConfig={wardConfig} sessionId={sessionId} />}
       <p className="play-info">
-        WASD to move · E to investigate nearby objects · Collect 3 clues to unlock puzzles
+        WASD to move · E to investigate · Q open journal · Solve all 3 puzzles to escape
       </p>
     </main>
   );

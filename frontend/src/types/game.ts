@@ -77,6 +77,12 @@ export interface WardObject {
   scareType?: ScareType;
   flavorText?: string;
   investigated: boolean;
+  /** If set, interacting opens this puzzle's modal */
+  puzzleId?: PuzzleId;
+  /** If set, investigating this object reveals a hint for the given puzzle */
+  hintForPuzzle?: PuzzleId;
+  /** The hint text shown when this object is investigated (for puzzle hints) */
+  hintText?: string;
 }
 
 // ─── Puzzles ───────────────────────────────────────────────────────
@@ -94,8 +100,25 @@ export type PuzzleName =
 export interface PuzzleConfig {
   id: PuzzleId;
   name: PuzzleName;
+  /** Display title for the puzzle modal */
+  title: string;
+  /** Description/instructions shown in the puzzle modal */
+  description: string;
+  /** The correct answer (case-insensitive) */
+  answer: string;
+  /** Extra puzzle-specific params (e.g. cipher shift, color sequence) */
   params: Record<string, unknown>;
   solved: boolean;
+}
+
+/** Runtime state for the active puzzle modal */
+export interface PuzzleState {
+  puzzleId: PuzzleId;
+  config: PuzzleConfig;
+  playerInput: string;
+  attempts: number;
+  feedback: string;
+  feedbackColor: string;
 }
 
 // ─── Co-op Tasks ───────────────────────────────────────────────────
