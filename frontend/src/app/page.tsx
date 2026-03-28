@@ -5,35 +5,46 @@
 import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { IS_DEV_MODE } from '@/lib/devMode';
+import { IS_DEV_MODE, isAdmin } from '@/lib/devMode';
 
 export default function LandingPage() {
   const router = useRouter();
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
 
-  const handleEnter = () => {
+  const handleEnterDev = () => {
     router.push('/play');
   };
+
+  const handleEnterGame = () => {
+    alert("Staking and Session Creation UI coming soon!");
+  };
+
+  const hasDevAccess = IS_DEV_MODE || isAdmin(address);
 
   return (
     <main className="landing">
       <div className="fog-layer" />
 
-      {IS_DEV_MODE && <div className="dev-badge">⚠ DEV MODE</div>}
+      {hasDevAccess && <div className="dev-badge">⚠ DEV MODE</div>}
 
       <h1 className="landing-title">PH0xBIA</h1>
       <p className="landing-subtitle">ASHWORTH ASYLUM — EST. 1952</p>
       <p className="landing-tagline">&quot;No survivors.&quot;</p>
 
-      {IS_DEV_MODE ? (
-        <button className="landing-enter-btn" onClick={handleEnter}>
-          Enter (Dev Mode)
-        </button>
-      ) : isConnected ? (
+      {isConnected ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', zIndex: 2 }}>
           <ConnectButton showBalance={true} />
-          <button className="landing-enter-btn" onClick={handleEnter}>
-            Enter the Asylum
+          {hasDevAccess && (
+            <button 
+              className="landing-enter-btn" 
+              onClick={handleEnterDev} 
+              style={{ borderColor: '#ff6600', color: '#ff6600', marginTop: '0.5rem' }}
+            >
+              Enter Asylum (Dev Bypass)
+            </button>
+          )}
+          <button className="landing-enter-btn" onClick={handleEnterGame}>
+            Stake MON & Enter
           </button>
         </div>
       ) : (

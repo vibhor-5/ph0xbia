@@ -2,9 +2,11 @@
 /* ──────────────────────────────────────────────────────────────────────
  *  Play Page — Mounts the 3D asylum game
  * ────────────────────────────────────────────────────────────────────── */
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { IS_DEV_MODE, DEV_SEED } from '@/lib/devMode';
+import { useRouter } from 'next/navigation';
+import { useAccount } from 'wagmi';
+import { IS_DEV_MODE, DEV_SEED, isAdmin } from '@/lib/devMode';
 import { generateWard } from '@/lib/roomGenerator';
 
 const AsylumGame = dynamic(() => import('@/components/AsylumGame'), {
@@ -33,12 +35,26 @@ const AsylumGame = dynamic(() => import('@/components/AsylumGame'), {
 });
 
 export default function PlayPage() {
-  const seed = IS_DEV_MODE ? DEV_SEED : DEV_SEED;
+  const router = useRouter();
+  const { address } = useAccount();
+  const hasDevAccess = IS_DEV_MODE || isAdmin(address);
+
+  useEffect(() => {
+    // Basic protection against direct navigation by unauthorized users
+    if (!hasDevAccess) {
+      alert("Unauthorized: Staking and active session required.");
+      router.push('/');
+    }
+  }, [hasDevAccess, router]);
+
+  const seed = hasDevAccess ? DEV_SEED : DEV_SEED;
   const wardConfig = useMemo(() => generateWard(seed, false), [seed]);
+
+  if (!hasDevAccess) return null; // Prevent flicker before redirect
 
   return (
     <main className="play-page">
-      {IS_DEV_MODE && <div className="dev-badge">⚠ DEV MODE</div>}
+      {hasDevAccess && <div className="dev-badge">⚠ DEV MODE BYPASS</div>}
       <h2 className="play-header">ASHWORTH ASYLUM</h2>
       <AsylumGame wardConfig={wardConfig} />
       <p className="play-info">

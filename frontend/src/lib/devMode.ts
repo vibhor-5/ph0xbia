@@ -4,6 +4,16 @@
 
 export const IS_DEV_MODE = process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
+const adminWallets = (process.env.NEXT_PUBLIC_ADMIN_WALLETS || '')
+  .split(',')
+  .map((addr) => addr.trim().toLowerCase())
+  .filter(Boolean);
+
+export function isAdmin(address?: string | null): boolean {
+  if (!address) return false;
+  return adminWallets.includes(address.toLowerCase());
+}
+
 /** Mock seed used in dev mode (deterministic for testing) */
 export const DEV_SEED = '0xdeadbeefcafebabe1234567890abcdef1234567890abcdef1234567890abcdef';
 
