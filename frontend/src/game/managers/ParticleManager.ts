@@ -71,8 +71,8 @@ export class ParticleManager {
           frequency: 500,
           quantity: 1,
           emitZone: {
-            type: 'random',
-            source: new Phaser.Geom.Circle(0, 0, 24),
+            type: 'random' as const,
+            source: new Phaser.Geom.Circle(0, 0, 24) as unknown as Phaser.Types.GameObjects.Particles.RandomZoneSource,
           },
         });
         emitter.setDepth(350);

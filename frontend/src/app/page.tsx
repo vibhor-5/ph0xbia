@@ -1,12 +1,15 @@
 'use client';
 /* ──────────────────────────────────────────────────────────────────────
- *  Landing Page — "ASHWORTH ASYLUM"
+ *  Landing Page — "ASHWORTH ASYLUM" with wallet connect
  * ────────────────────────────────────────────────────────────────────── */
 import { useRouter } from 'next/navigation';
+import { useAccount } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { IS_DEV_MODE } from '@/lib/devMode';
 
 export default function LandingPage() {
   const router = useRouter();
+  const { isConnected } = useAccount();
 
   const handleEnter = () => {
     router.push('/play');
@@ -22,9 +25,22 @@ export default function LandingPage() {
       <p className="landing-subtitle">ASHWORTH ASYLUM — EST. 1952</p>
       <p className="landing-tagline">&quot;No survivors.&quot;</p>
 
-      <button className="landing-enter-btn" onClick={handleEnter}>
-        {IS_DEV_MODE ? 'Enter (Dev Mode)' : 'Connect Wallet'}
-      </button>
+      {IS_DEV_MODE ? (
+        <button className="landing-enter-btn" onClick={handleEnter}>
+          Enter (Dev Mode)
+        </button>
+      ) : isConnected ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', zIndex: 2 }}>
+          <ConnectButton showBalance={true} />
+          <button className="landing-enter-btn" onClick={handleEnter}>
+            Enter the Asylum
+          </button>
+        </div>
+      ) : (
+        <div style={{ zIndex: 2 }}>
+          <ConnectButton label="Connect Wallet to Enter" />
+        </div>
+      )}
 
       <p style={{
         fontFamily: 'var(--font-mono)',

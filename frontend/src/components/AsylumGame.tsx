@@ -643,7 +643,7 @@ class GameEngine {
       if (d < 2.5 && (!best || d < best.dist)) best = { idx: i, dist: d };
     });
     if (!best) { this.cb.showMsg('Nothing within reach...', '#555'); return; }
-    const { obj, glow } = this.objMeshes[best.idx];
+    const { obj, glow } = this.objMeshes[(best as { idx: number; dist: number }).idx];
     if (this.investigated.has(obj.id)) { this.cb.showMsg('Already investigated.', '#444'); return; }
     this.investigated.add(obj.id);
     glow.visible = false;

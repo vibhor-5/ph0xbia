@@ -621,9 +621,10 @@ export class GameScene extends Phaser.Scene {
       if (dist < nearestDist) { nearestDist = dist; nearest = obj; }
     });
     if (nearest) {
-      const nsx = (nearest.x / 800) * (MAP_W - 100) + 50;
-      const nsy = (nearest.y / 600) * (MAP_H - 100) + 50;
-      this.tryInvestigate(nearest, nsx, nsy);
+      const n = nearest as WardObject;
+      const nsx = (n.x / 800) * (MAP_W - 100) + 50;
+      const nsy = (n.y / 600) * (MAP_H - 100) + 50;
+      this.tryInvestigate(n, nsx, nsy);
     }
   }
 
