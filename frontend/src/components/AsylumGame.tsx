@@ -68,14 +68,28 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
     }
   }, [escapeFlow, sessionId, publicClient]);
 
+  const callbacksRef = useRef({ setSanity, setClues, setPuzzles, showMsg, onPuzzleSolved, onExitReached, setLocked, setNearObj });
+  useEffect(() => {
+    callbacksRef.current = { setSanity, setClues, setPuzzles, showMsg, onPuzzleSolved, onExitReached, setLocked, setNearObj };
+  });
+
   useEffect(() => {
     if (!containerRef.current || engineRef.current) return;
     engineRef.current = new GameEngine(
       containerRef.current, wardConfig,
-      { setSanity, setClues, setPuzzles, showMsg, onPuzzleSolved, onExitReached, setLocked, setNearObj },
+      { 
+        setSanity: (fn) => callbacksRef.current.setSanity(fn),
+        setClues: (fn) => callbacksRef.current.setClues(fn),
+        setPuzzles: (fn) => callbacksRef.current.setPuzzles(fn),
+        showMsg: (t, c) => callbacksRef.current.showMsg(t, c),
+        onPuzzleSolved: (i) => callbacksRef.current.onPuzzleSolved(i),
+        onExitReached: () => callbacksRef.current.onExitReached(),
+        setLocked: (l) => callbacksRef.current.setLocked(l),
+        setNearObj: (n) => callbacksRef.current.setNearObj(n)
+      },
     );
     return () => { engineRef.current?.dispose(); engineRef.current = null; };
-  }, [wardConfig, showMsg, onPuzzleSolved, onExitReached]);
+  }, []);
 
   if (outcome === 'win') {
     return (
@@ -205,6 +219,58 @@ const OBJ_MODELS: Record<string, string> = {
   'straitjacket': 'straitjacket.glb',
 };
 
+// ─── GLOBAL ASSET CACHE ───
+const GLOBAL_TEXTURES: Record<string, THREE.Texture> = {};
+const GLOBAL_MODELS: Record<string, THREE.Group> = {};
+let assetsLoaded = false;
+let assetLoadingPromise: Promise<void> | null = null;
+const globalTexLoader = new THREE.TextureLoader();
+const globalGltfLoader = new GLTFLoader();
+
+async function loadAllAssets(): Promise<void> {
+  if (assetsLoaded) return;
+  if (assetLoadingPromise) return assetLoadingPromise;
+
+  assetLoadingPromise = new Promise((resolve) => {
+    const allModels = new Set<string>();
+    FURNITURE_MODELS.forEach(m => allModels.add(m.file));
+    Object.values(OBJ_MODELS).forEach(m => allModels.add(m));
+
+    let pending = Object.keys(TEX).length + allModels.size;
+    const checkDone = () => {
+      if (pending <= 0) { assetsLoaded = true; resolve(); }
+    };
+
+    Object.entries(TEX).forEach(([key, url]) => {
+      globalTexLoader.load(url, (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        GLOBAL_TEXTURES[key] = tex;
+        pending--; checkDone();
+      }, undefined, () => {
+        const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+        const ctx = c.getContext('2d')!;
+        ctx.fillStyle = '#3a3a3a'; ctx.fillRect(0, 0, 64, 64);
+        GLOBAL_TEXTURES[key] = new THREE.CanvasTexture(c);
+        pending--; checkDone();
+      });
+    });
+
+    allModels.forEach(file => {
+      globalGltfLoader.load(`/models/${file}`, (gltf) => {
+        GLOBAL_MODELS[file] = gltf.scene;
+        pending--; checkDone();
+      }, undefined, () => {
+        pending--; checkDone();
+      });
+    });
+    
+    if (pending === 0) checkDone();
+  });
+
+  return assetLoadingPromise;
+}
+
 class GameEngine {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
@@ -219,7 +285,9 @@ class GameEngine {
   private wc: WardConfig;
   private el: HTMLDivElement;
   private sanity = 100;
+  private lastSanityInt = 100;
   private investigated = new Set<string>();
+  private lastNearLabel = '';
   private clueCount = 0;
   private puzzleCount = 0;
   private exitMesh: THREE.Mesh | null = null;
@@ -227,18 +295,13 @@ class GameEngine {
   private objMeshes: { mesh: THREE.Group; obj: WardObject; glow: THREE.Mesh; label: string }[] = [];
   private flickerLights: { light: THREE.PointLight; bulbMat: THREE.MeshStandardMaterial; speed: number; base: number }[] = [];
   private dustGeo: THREE.BufferGeometry | null = null;
-  private loader = new THREE.TextureLoader();
-  private gltfLoader = new GLTFLoader();
-
-  // Cached loaded textures
-  private textures: Record<string, THREE.Texture> = {};
 
   constructor(el: HTMLDivElement, wc: WardConfig, cb: CB) {
     this.el = el; this.wc = wc; this.cb = cb;
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ powerPreference: 'high-performance', antialias: false });
     this.renderer.setSize(800, 600);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ReinhardToneMapping;
@@ -253,8 +316,9 @@ class GameEngine {
     this.camera = new THREE.PerspectiveCamera(75, 800 / 600, 0.1, 50);
     this.camera.position.set(0, 1.6, 3);
 
-    // Load all textures then build
-    this.loadTextures(() => {
+    // Load all textures and models then build
+    loadAllAssets().then(() => {
+      if (this.disposed) return;
       this.buildRoom();
       this.buildFurniture();
       this.buildObjects();
@@ -264,30 +328,8 @@ class GameEngine {
     });
   }
 
-  private loadTextures(cb: () => void): void {
-    let loaded = 0;
-    const total = Object.keys(TEX).length;
-    Object.entries(TEX).forEach(([key, url]) => {
-      this.loader.load(url, (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-        this.textures[key] = tex;
-        loaded++;
-        if (loaded >= total) cb();
-      }, undefined, () => {
-        // Fallback: create a simple colored texture if load fails
-        const c = document.createElement('canvas'); c.width = 64; c.height = 64;
-        const ctx = c.getContext('2d')!;
-        ctx.fillStyle = '#3a3a3a'; ctx.fillRect(0, 0, 64, 64);
-        this.textures[key] = new THREE.CanvasTexture(c);
-        loaded++;
-        if (loaded >= total) cb();
-      });
-    });
-  }
-
   private tex(name: string, repeatX = 1, repeatY = 1): THREE.Texture {
-    const t = this.textures[name].clone();
+    const t = GLOBAL_TEXTURES[name] ? GLOBAL_TEXTURES[name].clone() : new THREE.Texture();
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(repeatX, repeatY);
     t.needsUpdate = true;
@@ -431,32 +473,25 @@ class GameEngine {
   // ═══════════════════════════════════════════════════════════════════
 
   private loadModel(file: string, pos: [number, number, number], scale: number, rot?: [number, number, number], fallback?: () => THREE.Object3D): void {
-    this.gltfLoader.load(
-      `/models/${file}`,
-      (gltf) => {
-        const model = gltf.scene;
-        model.position.set(...pos);
-        model.scale.setScalar(scale);
-        if (rot) model.rotation.set(...rot);
-        model.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-          }
-        });
-        this.scene.add(model);
-      },
-      undefined,
-      () => {
-        // GLB not found — use fallback box geometry
-        if (fallback) {
-          const fb = fallback();
-          fb.position.set(...pos);
-          if (rot) fb.rotation.set(...rot);
-          this.scene.add(fb);
+    if (GLOBAL_MODELS[file]) {
+      const model = GLOBAL_MODELS[file].clone();
+      model.position.set(...pos);
+      model.scale.setScalar(scale);
+      if (rot) model.rotation.set(...rot);
+      model.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
         }
-      },
-    );
+      });
+      this.scene.add(model);
+    } else if (fallback) {
+      // GLB not found — use fallback box geometry
+      const fb = fallback();
+      fb.position.set(...pos);
+      if (rot) fb.rotation.set(...rot);
+      this.scene.add(fb);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -470,8 +505,8 @@ class GameEngine {
 
     // Helper to load a GLB model with shadow + transforms
     const loadGLB = (file: string, pos: [number, number, number], scale: number, rotY = 0) => {
-      this.gltfLoader.load(`/models/${file}`, (gltf) => {
-        const model = gltf.scene;
+      if (GLOBAL_MODELS[file]) {
+        const model = GLOBAL_MODELS[file].clone();
         model.position.set(...pos);
         model.scale.setScalar(scale);
         model.rotation.y = rotY;
@@ -482,9 +517,9 @@ class GameEngine {
           }
         });
         this.scene.add(model);
-      }, undefined, (err) => {
-        console.warn(`Failed to load /models/${file}:`, err);
-      });
+      } else {
+        console.warn(`Failed to pull /models/${file} from cache.`);
+      }
     };
 
     // ═══ GLB MODELS ═══
@@ -599,31 +634,15 @@ class GameEngine {
       group.position.set(x, 0, z);
       this.scene.add(group);
 
-      // Try loading GLB model for this object type
+      // Try loading GLB model from cache for this object type
       const modelFile = OBJ_MODELS[obj.type];
-      if (modelFile) {
-        this.gltfLoader.load(
-          `/models/${modelFile}`,
-          (gltf) => {
-            const model = gltf.scene;
-            model.scale.setScalar(0.4);
-            model.traverse((child) => {
-              if ((child as THREE.Mesh).isMesh) { child.castShadow = true; child.receiveShadow = true; }
-            });
-            group.add(model);
-          },
-          undefined,
-          () => {
-            // Fallback: textured box
-            const mesh = new THREE.Mesh(
-              new THREE.BoxGeometry(size[0], size[1], size[2]),
-              new THREE.MeshStandardMaterial({ map: this.tex(texKey, 1, 1), roughness: 0.7, metalness: texKey === 'metal' ? 0.3 : 0.05 }),
-            );
-            mesh.position.y = size[1] / 2;
-            mesh.castShadow = true;
-            group.add(mesh);
-          },
-        );
+      if (modelFile && GLOBAL_MODELS[modelFile]) {
+        const model = GLOBAL_MODELS[modelFile].clone();
+        model.scale.setScalar(0.4);
+        model.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) { child.castShadow = true; child.receiveShadow = true; }
+        });
+        group.add(model);
       } else {
         const mesh = new THREE.Mesh(
           new THREE.BoxGeometry(size[0], size[1], size[2]),
@@ -687,16 +706,30 @@ class GameEngine {
   // INPUT
   // ═══════════════════════════════════════════════════════════════════
 
+  private handleKeyDown = (e: KeyboardEvent) => { 
+    this.keys[e.key.toLowerCase()] = true; 
+    if (e.key.toLowerCase() === 'e') this.interact(); 
+  };
+  private handleKeyUp = (e: KeyboardEvent) => { 
+    this.keys[e.key.toLowerCase()] = false; 
+  };
+  private handlePointerLock = () => { 
+    this.cb.setLocked(document.pointerLockElement === this.el); 
+  };
+  private handleMouseMove = (e: MouseEvent) => {
+    if (document.pointerLockElement !== this.el) return;
+    this.yaw -= e.movementX * 0.002;
+    this.pitch = Math.max(-1.2, Math.min(1.2, this.pitch - e.movementY * 0.002));
+  };
+
   private setupInput(): void {
-    window.addEventListener('keydown', (e) => { this.keys[e.key.toLowerCase()] = true; if (e.key.toLowerCase() === 'e') this.interact(); });
-    window.addEventListener('keyup', (e) => { this.keys[e.key.toLowerCase()] = false; });
-    document.addEventListener('pointerlockchange', () => { this.cb.setLocked(document.pointerLockElement === this.el); });
-    document.addEventListener('mousemove', (e) => {
-      if (document.pointerLockElement !== this.el) return;
-      this.yaw -= e.movementX * 0.002;
-      this.pitch = Math.max(-1.2, Math.min(1.2, this.pitch - e.movementY * 0.002));
-    });
+    if (this.disposed) return;
+    window.addEventListener('keydown', this.handleKeyDown);
+    window.addEventListener('keyup', this.handleKeyUp);
+    document.addEventListener('pointerlockchange', this.handlePointerLock);
+    document.addEventListener('mousemove', this.handleMouseMove);
   }
+
 
   private interact(): void {
     let best: { idx: number; dist: number } | null = null;
@@ -787,17 +820,24 @@ class GameEngine {
       }
       this.camera.quaternion.setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
 
-      // Nearby hint
       let nearLabel = '';
       this.objMeshes.forEach(({ mesh, obj, label }) => {
         if (this.investigated.has(obj.id)) return;
         if (this.camera.position.distanceTo(mesh.position) < 2.5) nearLabel = label;
       });
-      this.cb.setNearObj(nearLabel);
+      if (nearLabel !== this.lastNearLabel) {
+        this.lastNearLabel = nearLabel;
+        this.cb.setNearObj(nearLabel);
+      }
 
       // Sanity regen
       if (!this.keys['w'] && !this.keys['s'] && !this.keys['a'] && !this.keys['d']) {
         this.sanity = Math.min(100, this.sanity + 0.3 * dt);
+      }
+      
+      const sanityInt = Math.floor(this.sanity);
+      if (sanityInt !== this.lastSanityInt) {
+        this.lastSanityInt = sanityInt;
         this.cb.setSanity(() => this.sanity);
       }
       if (this.exitMesh && this.camera.position.distanceTo(this.exitMesh.position) < 1.5) {
@@ -844,6 +884,10 @@ class GameEngine {
 
   dispose(): void {
     this.disposed = true;
+    window.removeEventListener('keydown', this.handleKeyDown);
+    window.removeEventListener('keyup', this.handleKeyUp);
+    document.removeEventListener('pointerlockchange', this.handlePointerLock);
+    document.removeEventListener('mousemove', this.handleMouseMove);
     cancelAnimationFrame(this.animId);
     this.renderer.dispose();
     this.renderer.domElement.remove();

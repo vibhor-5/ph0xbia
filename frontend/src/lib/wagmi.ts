@@ -21,7 +21,7 @@ export const monadTestnet = defineChain({
 
 export const wagmiConfig = getDefaultConfig({
   appName: 'PH0xBIA — Ashworth Asylum',
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '',
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '1c79f90cf2c6248b1d9bf5c02b8dff2f', // Public dummy fallback
   chains: [monadTestnet],
   ssr: true,
 });
