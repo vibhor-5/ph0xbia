@@ -5,6 +5,7 @@
  * ────────────────────────────────────────────────────────────────────── */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { WardConfig, WardObject } from '@/types/game';
 import { DEFAULT_SANITY_CONFIG } from '@/types/game';
 
@@ -105,6 +106,44 @@ const TEX = {
   fabric: '/textures/fabric.png',
 };
 
+// Model paths — drop .glb files in public/models/
+// If file exists → loads 3D model; if missing → falls back to box geometry
+interface ModelDef {
+  file: string;       // filename in public/models/
+  pos: [number, number, number];
+  rot?: [number, number, number];
+  scale?: number;
+}
+
+const FURNITURE_MODELS: ModelDef[] = [
+  { file: 'hospital_bed.glb', pos: [-3.5, 0, -4], rot: [0, 0.1, 0], scale: 0.8 },
+  { file: 'desk.glb', pos: [2.5, 0, -2.5], scale: 0.6 },
+  { file: 'chair.glb', pos: [1.8, 0, -1.8], rot: [0, 0.4, 0], scale: 0.5 },
+  { file: 'chair.glb', pos: [3.2, 0, -3.2], rot: [0, -0.6, 0], scale: 0.5 },
+  { file: 'cabinet.glb', pos: [4.2, 0, 0], rot: [0, -0.12, 0], scale: 0.7 },
+  { file: 'wheelchair.glb', pos: [-2, 0, 2], rot: [0, 0.7, 0], scale: 0.5 },
+  { file: 'shelf.glb', pos: [-4.6, 0, 1], scale: 0.6 },
+  { file: 'stool.glb', pos: [-1, 0.2, -1], rot: [0.3, 0, 1.2], scale: 0.4 },
+  { file: 'bucket.glb', pos: [3, 0, 3], scale: 0.3 },
+  { file: 'light_fixture.glb', pos: [0, 3.3, -1], scale: 0.3 },
+  { file: 'door.glb', pos: [0, 0, -5.9], scale: 0.8 },
+];
+
+const OBJ_MODELS: Record<string, string> = {
+  'bloodstained_cabinet': 'medicine_cabinet.glb',
+  'patient_file': 'patient_file.glb',
+  'shattered_mirror': 'mirror.glb',
+  'rusted_surgical_tray': 'surgical_tray.glb',
+  'old_radio': 'radio.glb',
+  'medicine_bottle': 'medicine_bottle.glb',
+  'rocking_chair': 'rocking_chair.glb',
+  'wheelchair': 'wheelchair.glb',
+  'broken_bed': 'hospital_bed.glb',
+  'padded_wall': 'padded_panel.glb',
+  'electroshock_machine': 'electroshock.glb',
+  'straitjacket': 'straitjacket.glb',
+};
+
 class GameEngine {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
@@ -127,6 +166,7 @@ class GameEngine {
   private flickerLights: { light: THREE.PointLight; bulbMat: THREE.MeshStandardMaterial; speed: number; base: number }[] = [];
   private dustGeo: THREE.BufferGeometry | null = null;
   private loader = new THREE.TextureLoader();
+  private gltfLoader = new GLTFLoader();
 
   // Cached loaded textures
   private textures: Record<string, THREE.Texture> = {};
@@ -315,7 +355,9 @@ class GameEngine {
 
   private makeBulb(x: number, y: number, z: number, color: number): THREE.MeshStandardMaterial {
     const mat = new THREE.MeshStandardMaterial({ color, emissive: new THREE.Color(color), emissiveIntensity: 3 });
-    this.scene.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), mat), { position: new THREE.Vector3(x, y + 0.08, z) }));
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), mat);
+    bulb.position.set(x, y + 0.08, z);
+    this.scene.add(bulb);
     const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.35, 4), new THREE.MeshStandardMaterial({ color: 0x333333 }));
     wire.position.set(x, y + 0.28, z);
     this.scene.add(wire);
@@ -323,7 +365,40 @@ class GameEngine {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // FURNITURE — Textured 3D objects
+  // MODEL LOADING — tries GLB first, falls back to box geometry
+  // ═══════════════════════════════════════════════════════════════════
+
+  private loadModel(file: string, pos: [number, number, number], scale: number, rot?: [number, number, number], fallback?: () => THREE.Object3D): void {
+    this.gltfLoader.load(
+      `/models/${file}`,
+      (gltf) => {
+        const model = gltf.scene;
+        model.position.set(...pos);
+        model.scale.setScalar(scale);
+        if (rot) model.rotation.set(...rot);
+        model.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        this.scene.add(model);
+      },
+      undefined,
+      () => {
+        // GLB not found — use fallback box geometry
+        if (fallback) {
+          const fb = fallback();
+          fb.position.set(...pos);
+          if (rot) fb.rotation.set(...rot);
+          this.scene.add(fb);
+        }
+      },
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // FURNITURE — Mix of GLB models and box geometry
   // ═══════════════════════════════════════════════════════════════════
 
   private buildFurniture(): void {
@@ -331,116 +406,111 @@ class GameEngine {
     const metalMat = () => new THREE.MeshStandardMaterial({ map: this.tex('metal', 1, 1), roughness: 0.6, metalness: 0.4 });
     const fabricMat = () => new THREE.MeshStandardMaterial({ map: this.tex('fabric', 1, 1), roughness: 0.95 });
 
-    // ── Hospital Bed ──
-    const bed = new THREE.Group();
-    bed.add(this.box(1.0, 0.05, 2.0, 0, 0.35, 0, metalMat()));     // frame
-    [[-0.45, -0.9], [0.45, -0.9], [-0.45, 0.9], [0.45, 0.9]].forEach(([lx, lz]) =>
-      bed.add(this.box(0.04, 0.35, 0.04, lx, 0.175, lz, metalMat())), // legs
-    );
-    bed.add(this.box(1.0, 0.7, 0.04, 0, 0.7, -0.98, metalMat()));   // headboard
-    bed.add(this.box(0.9, 0.12, 1.8, 0, 0.44, 0, fabricMat()));      // mattress
-    bed.position.set(-3.5, 0, -4); bed.rotation.y = 0.1;
-    this.scene.add(bed);
+    // Helper to load a GLB model with shadow + transforms
+    const loadGLB = (file: string, pos: [number, number, number], scale: number, rotY = 0) => {
+      this.gltfLoader.load(`/models/${file}`, (gltf) => {
+        const model = gltf.scene;
+        model.position.set(...pos);
+        model.scale.setScalar(scale);
+        model.rotation.y = rotY;
+        model.traverse((c) => {
+          if ((c as THREE.Mesh).isMesh) {
+            c.castShadow = true;
+            c.receiveShadow = true;
+          }
+        });
+        this.scene.add(model);
+      }, undefined, (err) => {
+        console.warn(`Failed to load /models/${file}:`, err);
+      });
+    };
 
-    // ── Desk ──
+    // ═══ GLB MODELS ═══
+
+    // Hospital Bed (back-left corner)
+    loadGLB('hospital_bed.glb', [-3.5, 0, -4], 0.8, 0.1);
+
+    // Chairs (near the desk)
+    loadGLB('chair.glb', [1.8, 0, -1.8], 0.6, 0.4);
+    loadGLB('chair.glb', [3.2, 0, -3.2], 0.6, -0.6);
+
+    // Cabinet (right wall)
+    loadGLB('cabinet.glb', [4.2, 0, 0], 0.7, -0.12);
+
+    // Mirror (mounted on left wall)
+    loadGLB('mirror.glb', [-4.8, 1.3, -2], 0.5, Math.PI / 2);
+
+    // Shelf (left wall, further back)
+    loadGLB('shelf.glb', [-4.6, 0, 1], 0.4, Math.PI / 2);
+
+    // ═══ BOX GEOMETRY (items without GLB models) ═══
+
+    // ── Desk (center-right) ──
     const desk = new THREE.Group();
     desk.add(this.box(1.3, 0.06, 0.75, 0, 0.72, 0, woodMat()));
     [[-0.55, -0.3], [0.55, -0.3], [-0.55, 0.3], [0.55, 0.3]].forEach(([lx, lz]) =>
-      desk.add(this.box(0.06, 0.72, 0.06, lx, 0.36, lz, woodMat())),
-    );
-    // Drawer fronts
+      desk.add(this.box(0.06, 0.72, 0.06, lx, 0.36, lz, woodMat())));
     desk.add(this.box(0.5, 0.15, 0.03, -0.3, 0.55, 0.34, woodMat()));
     desk.add(this.box(0.5, 0.15, 0.03, 0.3, 0.55, 0.34, woodMat()));
     desk.position.set(2.5, 0, -2.5);
     this.scene.add(desk);
 
-    // ── Chairs ──
-    [{ x: 1.8, z: -1.8, ry: 0.4 }, { x: 3.2, z: -3.2, ry: -0.6 }].forEach(({ x, z, ry }) => {
-      const ch = new THREE.Group();
-      ch.add(this.box(0.42, 0.04, 0.42, 0, 0.42, 0, woodMat()));
-      [[-0.17, -0.17], [0.17, -0.17], [-0.17, 0.17], [0.17, 0.17]].forEach(([lx, lz]) =>
-        ch.add(this.box(0.035, 0.42, 0.035, lx, 0.21, lz, woodMat())),
-      );
-      ch.add(this.box(0.42, 0.5, 0.04, 0, 0.7, -0.19, woodMat()));
-      ch.position.set(x, 0, z); ch.rotation.y = ry;
-      this.scene.add(ch);
-    });
-
-    // ── Tall Cabinet ──
-    const cab = new THREE.Group();
-    cab.add(this.box(0.85, 1.9, 0.42, 0, 0.95, 0, woodMat()));
-    cab.add(this.box(0.4, 1.6, 0.03, -0.22, 0.9, 0.23, woodMat())); // left door
-    cab.add(this.box(0.4, 1.6, 0.03, 0.26, 0.9, 0.26, woodMat())); // right door (ajar)
-    // Shelves inside
-    [0.5, 1.0, 1.5].forEach((sy) =>
-      cab.add(this.box(0.78, 0.02, 0.38, 0, sy, 0, woodMat())),
-    );
-    cab.position.set(4.2, 0, 0); cab.rotation.y = -0.12;
-    this.scene.add(cab);
-
     // ── Wheelchair ──
     const wc = new THREE.Group();
-    wc.add(this.box(0.48, 0.03, 0.42, 0, 0.45, 0, metalMat()));  // seat
-    wc.add(this.box(0.48, 0.55, 0.03, 0, 0.72, -0.2, metalMat())); // back
-    wc.add(this.box(0.03, 0.2, 0.35, -0.23, 0.55, 0.05, metalMat())); // armrest L
-    wc.add(this.box(0.03, 0.2, 0.35, 0.23, 0.55, 0.05, metalMat()));  // armrest R
+    wc.add(this.box(0.48, 0.03, 0.42, 0, 0.45, 0, metalMat()));
+    wc.add(this.box(0.48, 0.55, 0.03, 0, 0.72, -0.2, metalMat()));
+    wc.add(this.box(0.03, 0.2, 0.35, -0.23, 0.55, 0.05, metalMat()));
+    wc.add(this.box(0.03, 0.2, 0.35, 0.23, 0.55, 0.05, metalMat()));
     [-0.28, 0.28].forEach((x) => {
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.03, 14), metalMat());
-      wheel.rotation.z = Math.PI / 2;
-      wheel.position.set(x, 0.28, 0);
-      wc.add(wheel);
-    });
-    // Front casters
-    [-0.15, 0.15].forEach((x) => {
-      const caster = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), metalMat());
-      caster.position.set(x, 0.05, 0.25);
-      wc.add(caster);
+      const w = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.03, 14), metalMat());
+      w.rotation.z = Math.PI / 2; w.position.set(x, 0.28, 0); wc.add(w);
     });
     wc.position.set(-2, 0, 2); wc.rotation.y = 0.7;
     this.scene.add(wc);
 
-    // ── Shelf (left wall) ──
-    const shelf = new THREE.Group();
-    [0.8, 1.3, 1.8].forEach((y) => shelf.add(this.box(1.3, 0.04, 0.28, 0, y, 0, woodMat())));
-    [-0.62, 0.62].forEach((x) => shelf.add(this.box(0.04, 1.2, 0.28, x, 1.3, 0, woodMat())));
-    shelf.position.set(-4.6, 0, 1);
-    this.scene.add(shelf);
-
-    // ── Metal bucket ──
-    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.2, 8), metalMat());
-    bucket.position.set(3, 0.1, 3);
-    this.scene.add(bucket);
-
-    // ── Overturned stool ──
+    // ── Overturned Stool ──
     const stool = new THREE.Group();
     stool.add(this.box(0.35, 0.04, 0.35, 0, 0, 0, woodMat()));
     [[-0.12, -0.12], [0.12, -0.12], [-0.12, 0.12], [0.12, 0.12]].forEach(([lx, lz]) =>
-      stool.add(this.box(0.03, 0.35, 0.03, lx, -0.18, lz, woodMat())),
-    );
-    stool.position.set(-1, 0.2, -1);
-    stool.rotation.z = 1.2; stool.rotation.x = 0.3;
+      stool.add(this.box(0.03, 0.35, 0.03, lx, -0.18, lz, woodMat())));
+    stool.position.set(-1, 0.2, -1); stool.rotation.z = 1.2; stool.rotation.x = 0.3;
     this.scene.add(stool);
 
-    // ── Floor debris ──
+    // ── Bucket ──
+    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.2, 8), metalMat());
+    bucket.position.set(3, 0.1, 3); this.scene.add(bucket);
+
+    // ═══ DOOR — on the back wall ═══
+    const doorGroup = new THREE.Group();
+    const darkWood = new THREE.MeshStandardMaterial({ map: this.tex('wood', 1, 2), roughness: 0.8, color: 0x2a1a0a });
+    doorGroup.add(this.box(0.12, 2.5, 0.18, -0.54, 1.25, 0, metalMat()));
+    doorGroup.add(this.box(0.12, 2.5, 0.18, 0.54, 1.25, 0, metalMat()));
+    doorGroup.add(this.box(1.2, 0.1, 0.18, 0, 2.5, 0, metalMat()));
+    doorGroup.add(this.box(0.96, 2.38, 0.06, 0, 1.2, -0.05, darkWood));
+    const pMat = new THREE.MeshStandardMaterial({ map: this.tex('wood', 0.5, 1), roughness: 0.85, color: 0x321c0e });
+    doorGroup.add(this.box(0.35, 0.75, 0.02, -0.22, 1.75, -0.1, pMat));
+    doorGroup.add(this.box(0.35, 0.75, 0.02, 0.22, 1.75, -0.1, pMat));
+    doorGroup.add(this.box(0.35, 0.75, 0.02, -0.22, 0.65, -0.1, pMat));
+    doorGroup.add(this.box(0.35, 0.75, 0.02, 0.22, 0.65, -0.1, pMat));
+    const hMat = new THREE.MeshStandardMaterial({ color: 0x886633, roughness: 0.4, metalness: 0.6 });
+    doorGroup.add(this.box(0.03, 0.12, 0.06, 0.38, 1.1, -0.12, hMat));
+    const hiMat = new THREE.MeshStandardMaterial({ map: this.tex('metal', 0.5, 0.5), roughness: 0.5, metalness: 0.5 });
+    [0.5, 1.5, 2.2].forEach((hy) => doorGroup.add(this.box(0.06, 0.08, 0.04, -0.48, hy, -0.05, hiMat)));
+    doorGroup.position.set(2.5, 0, -5.92);
+    this.scene.add(doorGroup);
+
+    // ═══ Floor props ═══
     const debrisMat = new THREE.MeshStandardMaterial({ map: this.tex('wood', 0.5, 0.5), roughness: 1 });
     for (let i = 0; i < 15; i++) {
-      const d = new THREE.Mesh(
-        new THREE.BoxGeometry(0.04 + Math.random() * 0.18, 0.015, 0.04 + Math.random() * 0.12),
-        debrisMat,
-      );
+      const d = new THREE.Mesh(new THREE.BoxGeometry(0.04 + Math.random() * 0.18, 0.015, 0.04 + Math.random() * 0.12), debrisMat);
       d.position.set((Math.random() - 0.5) * 8, 0.008, (Math.random() - 0.5) * 10);
-      d.rotation.y = Math.random() * Math.PI;
-      this.scene.add(d);
+      d.rotation.y = Math.random() * Math.PI; this.scene.add(d);
     }
-
-    // ── Scattered papers ──
     const paperMat = new THREE.MeshStandardMaterial({ color: 0xccc8b0, roughness: 0.95 });
     for (let i = 0; i < 8; i++) {
       const p = new THREE.Mesh(new THREE.PlaneGeometry(0.15 + Math.random() * 0.1, 0.2 + Math.random() * 0.08), paperMat);
-      p.rotation.x = -Math.PI / 2 + (Math.random() - 0.5) * 0.15;
-      p.rotation.z = Math.random() * Math.PI;
-      p.position.set((Math.random() - 0.5) * 6, 0.01, (Math.random() - 0.5) * 8);
-      this.scene.add(p);
+      p.rotation.x = -Math.PI / 2 + (Math.random() - 0.5) * 0.15; p.rotation.z = Math.random() * Math.PI;
+      p.position.set((Math.random() - 0.5) * 6, 0.01, (Math.random() - 0.5) * 8); this.scene.add(p);
     }
   }
 
@@ -452,7 +522,7 @@ class GameEngine {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // INTERACTIVE OBJECTS
+  // INTERACTIVE OBJECTS — Tries GLB models, falls back to boxes
   // ═══════════════════════════════════════════════════════════════════
 
   private buildObjects(): void {
@@ -464,16 +534,45 @@ class GameEngine {
       const { size, texKey, label } = this.objVis(obj.type);
 
       const group = new THREE.Group();
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(size[0], size[1], size[2]),
-        new THREE.MeshStandardMaterial({ map: this.tex(texKey, 1, 1), roughness: 0.7, metalness: texKey === 'metal' ? 0.3 : 0.05 }),
-      );
-      mesh.position.y = size[1] / 2;
-      mesh.castShadow = true;
-      group.add(mesh);
       group.position.set(x, 0, z);
       this.scene.add(group);
 
+      // Try loading GLB model for this object type
+      const modelFile = OBJ_MODELS[obj.type];
+      if (modelFile) {
+        this.gltfLoader.load(
+          `/models/${modelFile}`,
+          (gltf) => {
+            const model = gltf.scene;
+            model.scale.setScalar(0.4);
+            model.traverse((child) => {
+              if ((child as THREE.Mesh).isMesh) { child.castShadow = true; child.receiveShadow = true; }
+            });
+            group.add(model);
+          },
+          undefined,
+          () => {
+            // Fallback: textured box
+            const mesh = new THREE.Mesh(
+              new THREE.BoxGeometry(size[0], size[1], size[2]),
+              new THREE.MeshStandardMaterial({ map: this.tex(texKey, 1, 1), roughness: 0.7, metalness: texKey === 'metal' ? 0.3 : 0.05 }),
+            );
+            mesh.position.y = size[1] / 2;
+            mesh.castShadow = true;
+            group.add(mesh);
+          },
+        );
+      } else {
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(size[0], size[1], size[2]),
+          new THREE.MeshStandardMaterial({ map: this.tex(texKey, 1, 1), roughness: 0.7, metalness: texKey === 'metal' ? 0.3 : 0.05 }),
+        );
+        mesh.position.y = size[1] / 2;
+        mesh.castShadow = true;
+        group.add(mesh);
+      }
+
+      // Glow ring
       const gc = obj.hasClue ? 0x2d6a4f : 0x663322;
       const glow = new THREE.Mesh(
         new THREE.RingGeometry(0.3, 0.5, 20),
