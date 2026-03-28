@@ -62,7 +62,7 @@ export class ParticleManager {
       );
 
       flyTargets.forEach(obj => {
-        const emitter = this.scene.add.particles(obj.x, obj.y, 'particle-fly', {
+        const emitter = this.scene.add.particles(obj.x, (obj as any).y || 0, 'particle-fly', {
           lifespan: 2000,
           speed: { min: 10, max: 30 },
           angle: { min: 0, max: 360 },

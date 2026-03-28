@@ -242,7 +242,7 @@ export class GameScene extends Phaser.Scene {
     this.wardConfig.objects.forEach((obj) => {
       // Scale from 800x600 to 1200x900
       const sx = (obj.x / 800) * (MAP_W - 100) + 50;
-      const sy = (obj.y / 600) * (MAP_H - 100) + 50;
+      const sy = (((obj as any).y || 0) / 600) * (MAP_H - 100) + 50;
 
       const container = this.add.container(sx, sy).setDepth(100);
 
@@ -614,7 +614,7 @@ export class GameScene extends Phaser.Scene {
     let nearestDist = INTERACT_RADIUS * 2;
     this.wardConfig?.objects?.forEach((obj) => {
       const sx = (obj.x / 800) * (MAP_W - 100) + 50;
-      const sy = (obj.y / 600) * (MAP_H - 100) + 50;
+      const sy = (((obj as any).y || 0) / 600) * (MAP_H - 100) + 50;
       const dx = sx - this.player.x;
       const dy = sy - this.player.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -623,7 +623,7 @@ export class GameScene extends Phaser.Scene {
     if (nearest) {
       const n = nearest as WardObject;
       const nsx = (n.x / 800) * (MAP_W - 100) + 50;
-      const nsy = (n.y / 600) * (MAP_H - 100) + 50;
+      const nsy = (((n as any).y || 0) / 600) * (MAP_H - 100) + 50;
       this.tryInvestigate(n, nsx, nsy);
     }
   }

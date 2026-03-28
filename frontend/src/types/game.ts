@@ -54,24 +54,18 @@ export interface WardConfig {
 }
 
 export type HorrorObjectType =
-  | 'bloodstained_cabinet'
-  | 'patient_file'
-  | 'shattered_mirror'
-  | 'rusted_surgical_tray'
-  | 'old_radio'
-  | 'medicine_bottle'
-  | 'rocking_chair'
-  | 'wheelchair'
-  | 'broken_bed'
-  | 'padded_wall'
-  | 'electroshock_machine'
-  | 'straitjacket';
+  | 'chair'
+  | 'bed'
+  | 'shelf'
+  | 'mirror'
+  | 'cabinet';
 
 export interface WardObject {
   id: string;
   type: HorrorObjectType;
   x: number;
-  y: number;
+  z: number;
+  rotY: number;
   hasClue: boolean;
   isScary: boolean;
   scareType?: ScareType;

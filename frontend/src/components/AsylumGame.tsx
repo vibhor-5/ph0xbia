@@ -448,33 +448,24 @@ interface ModelDef {
   scale?: number;
 }
 
-const FURNITURE_MODELS: ModelDef[] = [
-  { file: 'hospital_bed.glb', pos: [-3.5, 0, -4], rot: [0, 0.1, 0], scale: 0.8 },
-  { file: 'desk.glb', pos: [2.5, 0, -2.5], scale: 0.6 },
-  { file: 'chair.glb', pos: [1.8, 0, -1.8], rot: [0, 0.4, 0], scale: 0.5 },
-  { file: 'chair.glb', pos: [3.2, 0, -3.2], rot: [0, -0.6, 0], scale: 0.5 },
-  { file: 'cabinet.glb', pos: [4.2, 0, 0], rot: [0, -0.12, 0], scale: 0.7 },
-  { file: 'wheelchair.glb', pos: [-2, 0, 2], rot: [0, 0.7, 0], scale: 0.5 },
-  { file: 'shelf.glb', pos: [-4.6, 0, 1], scale: 0.6 },
-  { file: 'stool.glb', pos: [-1, 0.2, -1], rot: [0.3, 0, 1.2], scale: 0.4 },
-  { file: 'bucket.glb', pos: [3, 0, 3], scale: 0.3 },
-  { file: 'light_fixture.glb', pos: [0, 3.3, -1], scale: 0.3 },
-  { file: 'door.glb', pos: [0, 0, -5.9], scale: 0.8 },
-];
+const FURNITURE_MODELS: ModelDef[] = [];
 
 const OBJ_MODELS: Record<string, string> = {
-  'bloodstained_cabinet': 'medicine_cabinet.glb',
-  'patient_file': 'patient_file.glb',
-  'shattered_mirror': 'mirror.glb',
-  'rusted_surgical_tray': 'surgical_tray.glb',
-  'old_radio': 'radio.glb',
-  'medicine_bottle': 'medicine_bottle.glb',
-  'rocking_chair': 'rocking_chair.glb',
-  'wheelchair': 'wheelchair.glb',
-  'broken_bed': 'hospital_bed.glb',
-  'padded_wall': 'padded_panel.glb',
-  'electroshock_machine': 'electroshock.glb',
-  'straitjacket': 'straitjacket.glb',
+  'cabinet': 'cabinet.glb',
+  'mirror': 'mirror.glb',
+  'chair': 'chair.glb',
+  'bed': 'hospital_bed.glb',
+  'shelf': 'shelf.glb',
+};
+
+// Per-model orientation/scale/position fixes so each GLB stands correctly
+interface ModelPlacement { scale: number; rotX?: number; rotY?: number; rotZ?: number; yOffset?: number; }
+const MODEL_PLACEMENT: Record<string, ModelPlacement> = {
+  'cabinet': { scale: 0.9, rotX: Math.PI / 2, yOffset: 0.7 },   // rotate upright + lift to sit on floor
+  'mirror':  { scale: 0.6, yOffset: 1.3 },                      // wall-mounted
+  'chair':   { scale: 0.7, yOffset: 0 },                        // floor-standing
+  'bed':     { scale: 0.6, yOffset: 0 },                        // floor-level
+  'shelf':   { scale: 0.7, yOffset: 0 },                        // floor-standing tall
 };
 
 // ─── GLOBAL ASSET CACHE ───
@@ -792,85 +783,9 @@ class GameEngine {
   // ═══════════════════════════════════════════════════════════════════
 
   private buildFurniture(): void {
-    const woodMat = () => new THREE.MeshStandardMaterial({ map: this.tex('wood', 1, 1), roughness: 0.85 });
     const metalMat = () => new THREE.MeshStandardMaterial({ map: this.tex('metal', 1, 1), roughness: 0.6, metalness: 0.4 });
-    const fabricMat = () => new THREE.MeshStandardMaterial({ map: this.tex('fabric', 1, 1), roughness: 0.95 });
 
-    // Helper to load a GLB model with shadow + transforms
-    const loadGLB = (file: string, pos: [number, number, number], scale: number, rotY = 0) => {
-      if (GLOBAL_MODELS[file]) {
-        const model = GLOBAL_MODELS[file].clone();
-        model.position.set(...pos);
-        model.scale.setScalar(scale);
-        model.rotation.y = rotY;
-        model.traverse((c) => {
-          if ((c as THREE.Mesh).isMesh) {
-            c.castShadow = true;
-            c.receiveShadow = true;
-          }
-        });
-        this.scene.add(model);
-      } else {
-        console.warn(`Failed to pull /models/${file} from cache.`);
-      }
-    };
-
-    // ═══ GLB MODELS ═══
-
-    // Hospital Bed (back-left corner)
-    loadGLB('hospital_bed.glb', [-3.5, 0, -4], 0.8, 0.1);
-
-    // Chairs (near the desk)
-    loadGLB('chair.glb', [1.8, 0, -1.8], 0.6, 0.4);
-    loadGLB('chair.glb', [3.2, 0, -3.2], 0.6, -0.6);
-
-    // Cabinet (right wall)
-    loadGLB('cabinet.glb', [4.2, 0, 0], 0.7, -0.12);
-
-    // Mirror (mounted on left wall)
-    loadGLB('mirror.glb', [-4.8, 1.3, -2], 0.5, Math.PI / 2);
-
-    // Shelf (left wall, further back)
-    loadGLB('shelf.glb', [-4.6, 0, 1], 0.4, Math.PI / 2);
-
-    // ═══ BOX GEOMETRY (items without GLB models) ═══
-
-    // ── Desk (center-right) ──
-    const desk = new THREE.Group();
-    desk.add(this.box(1.3, 0.06, 0.75, 0, 0.72, 0, woodMat()));
-    [[-0.55, -0.3], [0.55, -0.3], [-0.55, 0.3], [0.55, 0.3]].forEach(([lx, lz]) =>
-      desk.add(this.box(0.06, 0.72, 0.06, lx, 0.36, lz, woodMat())));
-    desk.add(this.box(0.5, 0.15, 0.03, -0.3, 0.55, 0.34, woodMat()));
-    desk.add(this.box(0.5, 0.15, 0.03, 0.3, 0.55, 0.34, woodMat()));
-    desk.position.set(2.5, 0, -2.5);
-    this.scene.add(desk);
-
-    // ── Wheelchair ──
-    const wc = new THREE.Group();
-    wc.add(this.box(0.48, 0.03, 0.42, 0, 0.45, 0, metalMat()));
-    wc.add(this.box(0.48, 0.55, 0.03, 0, 0.72, -0.2, metalMat()));
-    wc.add(this.box(0.03, 0.2, 0.35, -0.23, 0.55, 0.05, metalMat()));
-    wc.add(this.box(0.03, 0.2, 0.35, 0.23, 0.55, 0.05, metalMat()));
-    [-0.28, 0.28].forEach((x) => {
-      const w = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.03, 14), metalMat());
-      w.rotation.z = Math.PI / 2; w.position.set(x, 0.28, 0); wc.add(w);
-    });
-    wc.position.set(-2, 0, 2); wc.rotation.y = 0.7;
-    this.scene.add(wc);
-
-    // ── Overturned Stool ──
-    const stool = new THREE.Group();
-    stool.add(this.box(0.35, 0.04, 0.35, 0, 0, 0, woodMat()));
-    [[-0.12, -0.12], [0.12, -0.12], [-0.12, 0.12], [0.12, 0.12]].forEach(([lx, lz]) =>
-      stool.add(this.box(0.03, 0.35, 0.03, lx, -0.18, lz, woodMat())));
-    stool.position.set(-1, 0.2, -1); stool.rotation.z = 1.2; stool.rotation.x = 0.3;
-    this.scene.add(stool);
-
-    // ── Bucket ──
-    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.2, 8), metalMat());
-    bucket.position.set(3, 0.1, 3); this.scene.add(bucket);
-
-    // ═══ DOOR — on the back wall ═══
+    // ═══ EXIT DOOR — on the back wall (remains as static box geometry fallback if no GLB) ═══
     const doorGroup = new THREE.Group();
     const darkWood = new THREE.MeshStandardMaterial({ map: this.tex('wood', 1, 2), roughness: 0.8, color: 0x2a1a0a });
     doorGroup.add(this.box(0.12, 2.5, 0.18, -0.54, 1.25, 0, metalMat()));
@@ -889,19 +804,110 @@ class GameEngine {
     doorGroup.position.set(2.5, 0, -5.92);
     this.scene.add(doorGroup);
 
-    // ═══ Floor props ═══
-    const debrisMat = new THREE.MeshStandardMaterial({ map: this.tex('wood', 0.5, 0.5), roughness: 1 });
-    for (let i = 0; i < 15; i++) {
-      const d = new THREE.Mesh(new THREE.BoxGeometry(0.04 + Math.random() * 0.18, 0.015, 0.04 + Math.random() * 0.12), debrisMat);
-      d.position.set((Math.random() - 0.5) * 8, 0.008, (Math.random() - 0.5) * 10);
-      d.rotation.y = Math.random() * Math.PI; this.scene.add(d);
+    // ═══ SCARY ATMOSPHERIC PROPS (non-interactive) ═══
+
+    const scaryMetal = new THREE.MeshStandardMaterial({ map: this.tex('metal', 1, 1), roughness: 0.7, metalness: 0.5, color: 0x5a4a3a });
+    const bloodMat = new THREE.MeshStandardMaterial({ color: 0x3a0000, transparent: true, opacity: 0.5, roughness: 1 });
+    const chainMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.5, metalness: 0.7 });
+
+    // ── Hanging chains from ceiling ──
+    [[-3.5, 4], [3.5, -4], [0, -5], [-4, 1]].forEach(([cx, cz]) => {
+      const chainLen = 0.8 + Math.random() * 1.2;
+      for (let i = 0; i < 6; i++) {
+        const link = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.008, 6, 8), chainMat);
+        link.position.set(cx, 3.8 - i * (chainLen / 6), cz);
+        link.rotation.x = i % 2 === 0 ? 0 : Math.PI / 2;
+        this.scene.add(link);
+      }
+    });
+
+    // ── Overturned gurney (back-left area) ──
+    const gurney = new THREE.Group();
+    gurney.add(this.box(0.7, 0.04, 1.4, 0, 0, 0, scaryMetal));
+    [[-0.28, -0.55], [0.28, -0.55], [-0.28, 0.55], [0.28, 0.55]].forEach(([lx, lz]) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.4, 6), scaryMetal.clone());
+      leg.position.set(lx, -0.2, lz); gurney.add(leg);
+    });
+    gurney.position.set(-3, 0.5, 4);
+    gurney.rotation.z = 0.8; gurney.rotation.x = 0.2;
+    this.scene.add(gurney);
+
+    // ── Rusty bucket with dark liquid ──
+    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.22, 8), scaryMetal.clone());
+    bucket.position.set(1.5, 0.11, 4.5);
+    this.scene.add(bucket);
+    const liquid = new THREE.Mesh(new THREE.CircleGeometry(0.11, 12), bloodMat.clone());
+    liquid.rotation.x = -Math.PI / 2; liquid.position.set(1.5, 0.22, 4.5);
+    this.scene.add(liquid);
+
+    // ── Scattered surgical tools on the floor ──
+    const toolMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.4, metalness: 0.6 });
+    // Scalpel
+    const scalpel = new THREE.Group();
+    scalpel.add(this.box(0.015, 0.008, 0.12, 0, 0, 0, toolMat));
+    scalpel.add(this.box(0.02, 0.01, 0.06, 0, 0, 0.09, new THREE.MeshStandardMaterial({ color: 0x4a3020, roughness: 0.9 })));
+    scalpel.position.set(0.5, 0.005, -2); scalpel.rotation.y = 0.7;
+    this.scene.add(scalpel);
+    // Syringe
+    const syringe = new THREE.Group();
+    syringe.add(this.box(0.012, 0.012, 0.15, 0, 0, 0, toolMat.clone()));
+    syringe.add(this.box(0.025, 0.025, 0.02, 0, 0, 0.085, toolMat.clone()));
+    syringe.position.set(-0.8, 0.006, 1); syringe.rotation.y = -0.4;
+    this.scene.add(syringe);
+    // Bone saw
+    const boneSaw = new THREE.Group();
+    boneSaw.add(this.box(0.02, 0.008, 0.2, 0, 0, 0, toolMat.clone()));
+    boneSaw.add(this.box(0.008, 0.04, 0.06, 0, 0.02, 0.13, new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.9 })));
+    boneSaw.position.set(2, 0.004, 1.5); boneSaw.rotation.y = 1.2;
+    this.scene.add(boneSaw);
+
+    // ── Wall scratch marks (on the left wall) ──
+    const scratchMat = new THREE.MeshStandardMaterial({ color: 0x2a1a0a, transparent: true, opacity: 0.5, roughness: 1, side: THREE.DoubleSide });
+    for (let i = 0; i < 5; i++) {
+      const scratch = new THREE.Mesh(new THREE.PlaneGeometry(0.015, 0.3 + Math.random() * 0.4), scratchMat);
+      scratch.position.set(-4.94, 1.0 + Math.random() * 1.0, -4 + i * 0.15);
+      scratch.rotation.y = Math.PI / 2;
+      scratch.rotation.z = -0.15 + Math.random() * 0.3;
+      this.scene.add(scratch);
     }
-    const paperMat = new THREE.MeshStandardMaterial({ color: 0xccc8b0, roughness: 0.95 });
-    for (let i = 0; i < 8; i++) {
-      const p = new THREE.Mesh(new THREE.PlaneGeometry(0.15 + Math.random() * 0.1, 0.2 + Math.random() * 0.08), paperMat);
-      p.rotation.x = -Math.PI / 2 + (Math.random() - 0.5) * 0.15; p.rotation.z = Math.random() * Math.PI;
-      p.position.set((Math.random() - 0.5) * 6, 0.01, (Math.random() - 0.5) * 8); this.scene.add(p);
-    }
+
+    // ── Straitjacket draped over an overturned stool ──
+    const stool = new THREE.Group();
+    const stoolWood = new THREE.MeshStandardMaterial({ map: this.tex('wood', 1, 1), roughness: 0.9, color: 0x4a3a2a });
+    stool.add(this.box(0.32, 0.04, 0.32, 0, 0, 0, stoolWood));
+    [[-0.11, -0.11], [0.11, -0.11], [-0.11, 0.11], [0.11, 0.11]].forEach(([lx, lz]) =>
+      stool.add(this.box(0.03, 0.35, 0.03, lx, -0.18, lz, stoolWood.clone())));
+    stool.position.set(1, 0.2, -1); stool.rotation.z = 1.1; stool.rotation.x = 0.2;
+    this.scene.add(stool);
+    // Draped fabric
+    const jacket = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.5, 0.6),
+      new THREE.MeshStandardMaterial({ map: this.tex('fabric', 1, 1), color: 0xbfb8a0, roughness: 1, side: THREE.DoubleSide }),
+    );
+    jacket.position.set(1.1, 0.35, -0.9); jacket.rotation.x = -0.6; jacket.rotation.z = 0.3;
+    this.scene.add(jacket);
+
+    // ── Flickering candles on the floor (occult vibes) ──
+    const candleMat = new THREE.MeshStandardMaterial({ color: 0xddd0b0, roughness: 0.9 });
+    const flameMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: new THREE.Color(0xff4400), emissiveIntensity: 3, transparent: true, opacity: 0.8 });
+    [[-1, -4.5], [0.5, -4.8], [-0.5, -5.2]].forEach(([cx, cz]) => {
+      // Candle body
+      const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.12, 8), candleMat);
+      candle.position.set(cx, 0.06, cz); this.scene.add(candle);
+      // Flame
+      const flame = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 6), flameMat);
+      flame.position.set(cx, 0.13, cz); this.scene.add(flame);
+      // Faint point light
+      const candleLight = new THREE.PointLight(0xff6633, 0.3, 3, 2);
+      candleLight.position.set(cx, 0.15, cz); this.scene.add(candleLight);
+    });
+
+    // ── Extra blood pools ──
+    [[-2.5, 3, 0.6], [3, -1, 0.4], [-3.5, -5, 0.5], [0, 3, 0.7]].forEach(([bx, bz, br]) => {
+      const blood = new THREE.Mesh(new THREE.CircleGeometry(br, 12), bloodMat.clone());
+      blood.rotation.x = -Math.PI / 2; blood.position.set(bx, 0.005, bz);
+      this.scene.add(blood);
+    });
   }
 
   private box(w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material): THREE.Mesh {
@@ -912,44 +918,30 @@ class GameEngine {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // INTERACTIVE OBJECTS — Tries GLB models, falls back to boxes
+  // INTERACTIVE OBJECTS — Built with procedural geometry
   // ═══════════════════════════════════════════════════════════════════
 
   private buildObjects(): void {
     if (!this.wc?.objects) return;
-    const RW = 10, RD = 12;
+    const woodMat = () => new THREE.MeshStandardMaterial({ map: this.tex('wood', 1, 1), roughness: 0.85 });
+    const metalMat = () => new THREE.MeshStandardMaterial({ map: this.tex('metal', 1, 1), roughness: 0.6, metalness: 0.4 });
+    const fabricMat = () => new THREE.MeshStandardMaterial({ map: this.tex('fabric', 1, 1), roughness: 0.95 });
+
     this.wc.objects.forEach((obj) => {
-      const x = (obj.x / 800) * (RW - 3) - (RW / 2 - 1.5);
-      const z = (obj.y / 600) * (RD - 3) - (RD / 2 - 1.5);
-      const { size, texKey, label } = this.objVis(obj.type);
+      const x = obj.x;
+      const z = obj.z;
 
       const group = new THREE.Group();
       group.position.set(x, 0, z);
+      group.rotation.y = obj.rotY;
       this.scene.add(group);
 
-      // Try loading GLB model from cache for this object type
-      const modelFile = OBJ_MODELS[obj.type];
-      if (modelFile && GLOBAL_MODELS[modelFile]) {
-        const model = GLOBAL_MODELS[modelFile].clone();
-        model.scale.setScalar(0.4);
-        model.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh) { child.castShadow = true; child.receiveShadow = true; }
-        });
-        group.add(model);
-      } else {
-        const mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(size[0], size[1], size[2]),
-          new THREE.MeshStandardMaterial({ map: this.tex(texKey, 1, 1), roughness: 0.7, metalness: texKey === 'metal' ? 0.3 : 0.05 }),
-        );
-        mesh.position.y = size[1] / 2;
-        mesh.castShadow = true;
-        group.add(mesh);
-      }
+      const label = this.buildFurniturePiece(group, obj.type, woodMat, metalMat, fabricMat);
 
-      // Glow ring
+      // Glow ring on floor
       const gc = obj.hasClue ? 0x2d6a4f : 0x663322;
       const glow = new THREE.Mesh(
-        new THREE.RingGeometry(0.3, 0.5, 20),
+        new THREE.RingGeometry(0.35, 0.55, 20),
         new THREE.MeshStandardMaterial({ color: gc, emissive: new THREE.Color(gc), emissiveIntensity: 1.5, transparent: true, opacity: 0.35, side: THREE.DoubleSide }),
       );
       glow.rotation.x = -Math.PI / 2;
@@ -960,22 +952,115 @@ class GameEngine {
     });
   }
 
-  private objVis(t: string): { size: [number, number, number]; texKey: string; label: string } {
-    const m: Record<string, { size: [number, number, number]; texKey: string; label: string }> = {
-      'bloodstained_cabinet': { size: [0.6, 1.1, 0.35], texKey: 'wood', label: 'Bloodstained Cabinet' },
-      'patient_file': { size: [0.35, 0.06, 0.25], texKey: 'fabric', label: 'Patient File' },
-      'shattered_mirror': { size: [0.4, 0.8, 0.06], texKey: 'metal', label: 'Shattered Mirror' },
-      'rusted_surgical_tray': { size: [0.5, 0.1, 0.3], texKey: 'metal', label: 'Surgical Tray' },
-      'old_radio': { size: [0.25, 0.2, 0.15], texKey: 'wood', label: 'Old Radio' },
-      'medicine_bottle': { size: [0.08, 0.2, 0.08], texKey: 'metal', label: 'Medicine Bottle' },
-      'rocking_chair': { size: [0.45, 0.6, 0.45], texKey: 'wood', label: 'Rocking Chair' },
-      'wheelchair': { size: [0.55, 0.7, 0.5], texKey: 'metal', label: 'Wheelchair' },
-      'broken_bed': { size: [0.8, 0.45, 1.2], texKey: 'metal', label: 'Broken Bed' },
-      'padded_wall': { size: [0.7, 1.2, 0.25], texKey: 'fabric', label: 'Padded Panel' },
-      'electroshock_machine': { size: [0.45, 0.6, 0.35], texKey: 'metal', label: 'Electroshock Device' },
-      'straitjacket': { size: [0.35, 0.06, 0.45], texKey: 'fabric', label: 'Straitjacket' },
-    };
-    return m[t] || { size: [0.35, 0.35, 0.35], texKey: 'wood', label: 'Object' };
+  /** Build a detailed procedural furniture piece and return a label string */
+  private buildFurniturePiece(
+    group: THREE.Group,
+    type: string,
+    woodMat: () => THREE.MeshStandardMaterial,
+    metalMat: () => THREE.MeshStandardMaterial,
+    fabricMat: () => THREE.MeshStandardMaterial,
+  ): string {
+    switch (type) {
+      case 'cabinet': {
+        // Tall upright cabinet — 0.7w × 1.5h × 0.4d
+        const body = woodMat(); body.color = new THREE.Color(0x4a3525);
+        group.add(this.box(0.7, 1.5, 0.4, 0, 0.75, 0, body));
+        // Left door
+        const doorMat = woodMat(); doorMat.color = new THREE.Color(0x5a4030);
+        group.add(this.box(0.33, 1.35, 0.025, -0.16, 0.75, 0.21, doorMat));
+        // Right door
+        group.add(this.box(0.33, 1.35, 0.025, 0.16, 0.75, 0.21, doorMat.clone()));
+        // Door handles
+        const hMat = metalMat();
+        group.add(this.box(0.02, 0.08, 0.03, -0.03, 0.8, 0.23, hMat));
+        group.add(this.box(0.02, 0.08, 0.03, 0.03, 0.8, 0.23, hMat.clone()));
+        // Internal shelves (visible through gap)
+        const shelfMat = woodMat(); shelfMat.color = new THREE.Color(0x3a2a1a);
+        group.add(this.box(0.64, 0.02, 0.35, 0, 0.5, 0, shelfMat));
+        group.add(this.box(0.64, 0.02, 0.35, 0, 1.0, 0, shelfMat.clone()));
+        // Top trim
+        group.add(this.box(0.74, 0.04, 0.44, 0, 1.52, 0, body.clone()));
+        return 'Cabinet';
+      }
+
+      case 'chair': {
+        // Wooden chair with backrest
+        const w = woodMat(); w.color = new THREE.Color(0x5c3d2e);
+        // Seat
+        group.add(this.box(0.42, 0.04, 0.42, 0, 0.44, 0, w));
+        // 4 legs
+        [[-0.16, -0.16], [0.16, -0.16], [-0.16, 0.16], [0.16, 0.16]].forEach(([lx, lz]) =>
+          group.add(this.box(0.04, 0.44, 0.04, lx, 0.22, lz, w.clone())));
+        // Backrest
+        const back = woodMat(); back.color = new THREE.Color(0x4a2e1e);
+        group.add(this.box(0.38, 0.45, 0.03, 0, 0.7, -0.19, back));
+        // Backrest horizontal slats
+        group.add(this.box(0.34, 0.03, 0.025, 0, 0.58, -0.19, back.clone()));
+        group.add(this.box(0.34, 0.03, 0.025, 0, 0.78, -0.19, back.clone()));
+        return 'Chair';
+      }
+
+      case 'bed': {
+        // Hospital-style metal bed frame with mattress
+        const m = metalMat();
+        // Frame rails (long sides)
+        group.add(this.box(0.04, 0.05, 1.8, -0.45, 0.35, 0, m));
+        group.add(this.box(0.04, 0.05, 1.8, 0.45, 0.35, 0, m.clone()));
+        // 4 legs
+        [[-0.45, -0.85], [0.45, -0.85], [-0.45, 0.85], [0.45, 0.85]].forEach(([lx, lz]) =>
+          group.add(this.box(0.04, 0.35, 0.04, lx, 0.175, lz, m.clone())));
+        // Headboard (metal bars)
+        group.add(this.box(0.9, 0.6, 0.04, 0, 0.65, -0.88, m.clone()));
+        // Footboard (shorter)
+        group.add(this.box(0.9, 0.35, 0.04, 0, 0.5, 0.88, m.clone()));
+        // Mattress
+        const fm = fabricMat(); fm.color = new THREE.Color(0x8a8a7a);
+        group.add(this.box(0.85, 0.12, 1.7, 0, 0.44, 0, fm));
+        // Pillow
+        const pil = fabricMat(); pil.color = new THREE.Color(0xaaa89a);
+        group.add(this.box(0.35, 0.08, 0.25, 0, 0.54, -0.65, pil));
+        return 'Bed';
+      }
+
+      case 'shelf': {
+        // Tall bookshelf/storage shelf — 0.8w × 1.8h × 0.3d
+        const w = woodMat(); w.color = new THREE.Color(0x3e2c1c);
+        // Left & right panels
+        group.add(this.box(0.03, 1.8, 0.3, -0.39, 0.9, 0, w));
+        group.add(this.box(0.03, 1.8, 0.3, 0.39, 0.9, 0, w.clone()));
+        // Back panel
+        group.add(this.box(0.75, 1.76, 0.02, 0, 0.9, -0.14, w.clone()));
+        // 4 horizontal shelf boards
+        const sb = woodMat(); sb.color = new THREE.Color(0x4a3620);
+        [0.02, 0.45, 0.9, 1.35, 1.78].forEach((hy) =>
+          group.add(this.box(0.75, 0.03, 0.28, 0, hy, 0, sb.clone())));
+        return 'Shelf';
+      }
+
+      case 'mirror': {
+        // Wall-mounted mirror: wooden frame + reflective glass
+        const frame = woodMat(); frame.color = new THREE.Color(0x3a2a1a);
+        // Frame border
+        group.add(this.box(0.6, 0.9, 0.04, 0, 1.4, 0, frame));
+        // Mirror glass (reflective surface)
+        const glass = new THREE.MeshStandardMaterial({
+          color: 0x99aabb, metalness: 0.85, roughness: 0.1,
+          envMapIntensity: 1.5,
+        });
+        group.add(this.box(0.5, 0.75, 0.015, 0, 1.4, 0.02, glass));
+        // Top decorative molding
+        group.add(this.box(0.64, 0.04, 0.06, 0, 1.87, 0, frame.clone()));
+        // Bottom molding
+        group.add(this.box(0.64, 0.04, 0.06, 0, 0.93, 0, frame.clone()));
+        return 'Mirror';
+      }
+
+      default: {
+        const fallback = woodMat();
+        group.add(this.box(0.4, 0.4, 0.4, 0, 0.2, 0, fallback));
+        return 'Object';
+      }
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
