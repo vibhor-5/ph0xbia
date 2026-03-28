@@ -7,7 +7,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { useAccount, usePublicClient } from 'wagmi';
-import { useEscapeFlow } from '@/hooks/useEscapeRoom';
+import { useEscapeFlow, useClaimReward } from '@/hooks/useEscapeRoom';
+import { useMultiplayer } from '@/hooks/useMultiplayer';
 import { supabase } from '@/lib/supabase/client';
 import type { WardConfig, WardObject, PuzzleConfig, PuzzleState, PuzzleId } from '@/types/game';
 import { DEFAULT_SANITY_CONFIG } from '@/types/game';
@@ -15,9 +16,10 @@ import { DEFAULT_SANITY_CONFIG } from '@/types/game';
 interface Props { 
   wardConfig: WardConfig;
   sessionId: bigint;
+  covenId?: number;
 }
 
-export default function AsylumGame({ wardConfig, sessionId }: Props) {
+export default function AsylumGame({ wardConfig, sessionId, covenId = 0 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const [sanity, setSanity] = useState(100);
@@ -28,6 +30,8 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
   const [locked, setLocked] = useState(false);
   const [outcome, setOutcome] = useState<'playing' | 'escape_pending' | 'win' | 'error'>('playing');
   const [nearObj, setNearObj] = useState('');
+  const [claimPending, setClaimPending] = useState(false);
+  const [claimDone, setClaimDone] = useState(false);
   // Puzzle modal state
   const [activePuzzle, setActivePuzzle] = useState<PuzzleState | null>(null);
   const [puzzleInput, setPuzzleInput] = useState('');
@@ -40,6 +44,31 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
   const { address } = useAccount();
   const publicClient = usePublicClient();
   const escapeFlow = useEscapeFlow();
+  const claimReward = useClaimReward();
+
+  // Multiplayer real-time sync
+  const { remotePlayers, onlineCount, broadcastPosition } = useMultiplayer({
+    sessionId: sessionId.toString(),
+    wallet: address ?? '',
+    covenId,
+    enabled: !!address,
+  });
+
+  // Broadcast position to other players at ~10fps
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!engineRef.current) return;
+      const { x, y, z } = engineRef.current.getCameraPosition();
+      const { yaw, pitch } = engineRef.current.getCameraRotation();
+      broadcastPosition(x, y, z, yaw, pitch, sanity);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [broadcastPosition, sanity]);
+
+  // Pass remote players into engine for ghost rendering
+  useEffect(() => {
+    engineRef.current?.updateRemotePlayers(remotePlayers);
+  }, [remotePlayers]);
 
   const showMsg = useCallback((t: string, c = '#8b0000') => {
     setMsg(t); setMsgColor(c);
@@ -186,11 +215,34 @@ export default function AsylumGame({ wardConfig, sessionId }: Props) {
   }, [activePuzzle]);
 
   if (outcome === 'win') {
+    const handleClaim = async () => {
+      try {
+        setClaimPending(true);
+        const tx = await claimReward(sessionId);
+        if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
+        setClaimDone(true);
+      } catch (e: any) {
+        alert(e.shortMessage || e.message || 'Claim failed');
+      } finally {
+        setClaimPending(false);
+      }
+    };
     return (
       <div style={{ width: 800, height: 600, background: '#0a1a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px solid #1a1a2e', margin: '0 auto' }}>
         <h1 style={{ fontFamily: 'serif', fontSize: '3rem', color: '#2d6a4f', textShadow: '0 0 30px rgba(45,106,79,0.5)' }}>YOU ESCAPED</h1>
-        <p style={{ color: '#6a8a6a', fontFamily: 'monospace', marginTop: 10 }}>All 3 puzzles solved. Session resolved on Monad. Your reward is secure.</p>
-        <button onClick={() => window.location.href = '/'} style={{ marginTop: 24, padding: '10px 24px', background: 'none', border: '1px solid #2d6a4f', color: '#2d6a4f', cursor: 'pointer', fontFamily: 'monospace' }}>Return to Lobby</button>
+        <p style={{ color: '#6a8a6a', fontFamily: 'monospace', marginTop: 10 }}>Session resolved on Monad.</p>
+        {claimDone ? (
+          <p style={{ color: '#2d6a4f', fontFamily: 'monospace', marginTop: 16, fontSize: '1.1rem' }}>✓ MON claimed to your wallet!</p>
+        ) : (
+          <button
+            onClick={handleClaim}
+            disabled={claimPending}
+            style={{ marginTop: 20, padding: '12px 32px', background: 'none', border: '1px solid #bfa14a', color: '#bfa14a', cursor: claimPending ? 'not-allowed' : 'pointer', fontFamily: 'monospace', fontSize: 14, opacity: claimPending ? 0.6 : 1 }}
+          >
+            {claimPending ? 'CLAIMING...' : '⚡ CLAIM YOUR MON REWARD'}
+          </button>
+        )}
+        <button onClick={() => window.location.href = '/'} style={{ marginTop: 12, padding: '8px 24px', background: 'none', border: '1px solid #2d6a4f', color: '#2d6a4f', cursor: 'pointer', fontFamily: 'monospace' }}>Return to Lobby</button>
       </div>
     );
   }
@@ -491,6 +543,7 @@ class GameEngine {
   private flickerLights: { light: THREE.PointLight; bulbMat: THREE.MeshStandardMaterial; speed: number; base: number }[] = [];
   private dustGeo: THREE.BufferGeometry | null = null;
   private solvedPuzzleIds = new Set<string>();
+  private ghostMeshes = new Map<string, THREE.Mesh>(); // remote player ghosts
 
   constructor(el: HTMLDivElement, wc: WardConfig, cb: CB) {
     this.el = el; this.wc = wc; this.cb = cb;
@@ -522,6 +575,39 @@ class GameEngine {
       this.setupInput();
       this.animate();
     });
+  }
+
+  // ── Public API for React wrapper ────────────────────────────────────
+  getCameraPosition() {
+    return { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z };
+  }
+
+  getCameraRotation() {
+    return { yaw: this.yaw, pitch: this.pitch };
+  }
+
+  updateRemotePlayers(players: Map<string, { position: { x: number; y: number }; sanity: number }>) {
+    // Remove ghosts for disconnected players
+    for (const [wallet, mesh] of this.ghostMeshes) {
+      if (!players.has(wallet)) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        this.ghostMeshes.delete(wallet);
+      }
+    }
+    // Add/update ghosts for active players
+    for (const [wallet, data] of players) {
+      let ghost = this.ghostMeshes.get(wallet);
+      if (!ghost) {
+        const geo = new THREE.SphereGeometry(0.15, 8, 8);
+        const mat = new THREE.MeshStandardMaterial({ color: 0x8b0000, emissive: 0x8b0000, emissiveIntensity: 1.5, transparent: true, opacity: 0.7 });
+        ghost = new THREE.Mesh(geo, mat);
+        this.scene.add(ghost);
+        this.ghostMeshes.set(wallet, ghost);
+      }
+      // Lerp to new position; y=1.6 (eye height)
+      ghost.position.lerp(new THREE.Vector3(data.position.x, 1.6, data.position.y), 0.3);
+    }
   }
 
   private tex(name: string, repeatX = 1, repeatY = 1): THREE.Texture {
