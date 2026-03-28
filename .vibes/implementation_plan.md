@@ -16,62 +16,62 @@
 
 ## Dev 1 — Chain & Backend
 
-#### [NEW] [PH0xBIA.sol](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/contracts/PH0xBIA.sol)
+#### [NEW] `contracts/PH0xBIA.sol`
 - Session/Coven structs, `createSession()`, `joinSession()`, `startSession()` (curse seed)
 - `markEscaped()` with ECDSA (The Warden), `claimReward()` (solo + co-op), `expireSession()`, `emergencyWithdraw()`
 - 2.5% Asylum's Tithe, all events
 
-#### [NEW] [deploy.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/contracts/deploy.ts)
+#### [NEW] `contracts/deploy.ts`
 - Hardhat deploy script for Monad testnet
 
-#### [NEW] [MonadEscapeRoom.test.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/test/MonadEscapeRoom.test.ts)
+#### [NEW] `test/MonadEscapeRoom.test.ts`
 - Full contract test suite (create, join, escape, claim, expire, emergency)
 
-#### [NEW] [schema.sql](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/supabase/schema.sql)
+#### [NEW] `supabase/schema.sql`
 - Tables: `sessions`, `session_covens`, `session_players`, `task_state`, `player_positions`, `sanity_events`
 
-#### [NEW] [rls.sql](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/supabase/rls.sql)
+#### [NEW] `supabase/rls.sql`
 
-#### [NEW] [sign-escape/route.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/app/api/sign-escape/route.ts)
+#### [NEW] `app/api/sign-escape/route.ts`
 - The Warden — verify 3 puzzles solved, return ECDSA sig
 
-#### [NEW] [channels.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/lib/supabase/channels.ts)
+#### [NEW] `lib/supabase/channels.ts`
 - Presence, position broadcast (>4px delta), chat, sanity, task_state listeners
 
-#### [NEW] [useEscapeRoom.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/hooks/useEscapeRoom.ts)
+#### [NEW] `hooks/useEscapeRoom.ts`
 - All wagmi hooks: create/join/start session, escape, claim, expire, read seed/state
 
-#### [NEW] [setup-env.sh](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scripts/setup-env.sh)
+#### [NEW] `scripts/setup-env.sh`
 
 ---
 
 ## Dev 2 — Game Engine
 
-#### [NEW] [BootScene.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/BootScene.ts) / [PreloadScene.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/PreloadScene.ts)
+#### [NEW] `scenes/BootScene.ts` / `scenes/PreloadScene.ts`
 - Asset loading, horror-themed loading bar
 
-#### [NEW] [IntroScene.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/IntroScene.ts)
+#### [NEW] `scenes/IntroScene.ts`
 - 5-second asylum hallway pan + text overlay
 
-#### [NEW] [GameScene.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/GameScene.ts)
+#### [NEW] `scenes/GameScene.ts`
 - Main orchestrator: tilemap, player (WASD + click-to-walk), hotspots, remote phantom rendering
 
-#### [NEW] [ResultScene.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/ResultScene.ts)
+#### [NEW] `scenes/ResultScene.ts`
 - Win / Loss / Timeout screens with horror atmosphere
 
-#### [NEW] [LightingManager.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/managers/LightingManager.ts)
+#### [NEW] `scenes/managers/LightingManager.ts`
 - Flashlight (128px/192px), flickering, blackout events
 
-#### [NEW] [FogOfWarManager.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/managers/FogOfWarManager.ts)
+#### [NEW] `scenes/managers/FogOfWarManager.ts`
 - Unexplored = black, minimap fog overlay
 
-#### [NEW] [GhostNPCManager.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/managers/GhostNPCManager.ts)
+#### [NEW] `scenes/managers/GhostNPCManager.ts`
 - 2–3 ghosts, seed-determined patrols, wall-phasing, sanity drain on contact (-10%, 2s slow)
 
-#### [NEW] [AudioManager.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/managers/AudioManager.ts)
+#### [NEW] `scenes/managers/AudioManager.ts`
 - Ambient layers, proximity whispers/heartbeat, stingers, co-op radio static
 
-#### [NEW] [ParticleManager.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/scenes/managers/ParticleManager.ts)
+#### [NEW] `scenes/managers/ParticleManager.ts`
 - Dust, embers, flies, dripping water
 
 #### Multiplayer Sync (in GameScene)
@@ -81,46 +81,46 @@
 
 ## Dev 3 — Frontend & Game Logic
 
-#### [NEW] [game.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/types/game.ts)
+#### [NEW] `types/game.ts`
 - All shared TypeScript types (Session, Coven, WardConfig, PuzzleConfig, SanityState, GhostPath, etc.)
 
 > [!IMPORTANT]
 > **Must be delivered Day 1** — both other devs depend on these types.
 
-#### [NEW] [prng.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/lib/prng.ts)
+#### [NEW] `lib/prng.ts`
 - mulberry32 + seeded helpers (pick, shuffle, float, int)
 
-#### [NEW] [roomGenerator.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/lib/roomGenerator.ts)
+#### [NEW] `lib/roomGenerator.ts`
 - `generateWard(seedHex, isCoOp)` → puzzles, tasks, horror objects, ghost paths, scares, blackouts
 
-#### [NEW] [sanity.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/lib/sanity.ts)
+#### [NEW] `lib/sanity.ts`
 - SanityManager: drain/recover, threshold effects at 75/50/25/0%, configurable rates
 
-#### [NEW] [puzzles/index.ts](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/lib/puzzles/index.ts)
+#### [NEW] `lib/puzzles/index.ts`
 - All 6 validators: BloodCipher, PatientNumbers, EVPRecording, BinaryLocks, RitualSequence, PatientAnagram
 
-#### [NEW] [app/page.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/app/page.tsx)
+#### [NEW] `app/page.tsx`
 - Landing: "ASHWORTH ASYLUM" — fog, lightning, glitchy title, rusted connect button
 
-#### [NEW] [app/lobby/page.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/app/lobby/page.tsx)
+#### [NEW] `app/lobby/page.tsx`
 - Solo/co-op session creation & join flow
 
-#### [NEW] [app/layout.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/app/layout.tsx)
+#### [NEW] `app/layout.tsx`
 - Dark horror theme, Creepster + Inter fonts, wagmi/RainbowKit providers
 
-#### [NEW] [components/puzzles/*.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/components/puzzles/)
+#### [NEW] `components/puzzles/*.tsx`
 - 6 horror puzzle UIs: grimy aesthetic, blood/rust, wrong=red flash, correct=green glow, 30s lockout
 
-#### [NEW] [CoopTaskOverlay.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/components/CoopTaskOverlay.tsx)
+#### [NEW] `components/CoopTaskOverlay.tsx`
 - Whisper Code, Séance Circle, Possessed Relay, Blood Ritual Levers
 
-#### [NEW] [HUD.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/components/HUD.tsx)
+#### [NEW] `components/HUD.tsx`
 - Sanity bar, timer (clock face), patient file, coven status, minimap
 
-#### [NEW] [SanityEffects.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/components/SanityEffects.tsx) / [JumpScare.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/components/JumpScare.tsx)
+#### [NEW] `components/SanityEffects.tsx` / `components/JumpScare.tsx`
 - Vignette, grain, chromatic aberration overlays; scare overlay + stinger
 
-#### [NEW] [ChatWidget.tsx](file:///Users/vibhorkumar/Desktop/codes/PH0xBIA/components/ChatWidget.tsx)
+#### [NEW] `components/ChatWidget.tsx`
 - Séance chat (old radio style, co-op only)
 
 ---
