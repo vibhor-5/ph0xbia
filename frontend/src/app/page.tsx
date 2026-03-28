@@ -2,21 +2,43 @@
 /* ──────────────────────────────────────────────────────────────────────
  *  Landing Page — "ASHWORTH ASYLUM" with wallet connect
  * ────────────────────────────────────────────────────────────────────── */
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { IS_DEV_MODE, isAdmin } from '@/lib/devMode';
+import { useCreateSession } from '@/hooks/useEscapeRoom';
 
 export default function LandingPage() {
   const router = useRouter();
   const { isConnected, address } = useAccount();
+  const publicClient = usePublicClient();
+  const createSession = useCreateSession();
+  
+  const [stakeAmount, setStakeAmount] = useState('0.01');
+  const [isPending, setIsPending] = useState(false);
 
   const handleEnterDev = () => {
     router.push('/play');
   };
 
-  const handleEnterGame = () => {
-    alert("Staking and Session Creation UI coming soon!");
+  const handleEnterGame = async () => {
+    if (!publicClient) return alert("Web3 provider not ready");
+    try {
+      setIsPending(true);
+      
+      const sessionId = BigInt(Math.floor(Date.now() / 1000));
+      const txHash = await createSession(sessionId, stakeAmount, false, 1, 1, 3600);
+      
+      await publicClient.waitForTransactionReceipt({ hash: txHash });
+      
+      router.push(`/play?sessionId=${sessionId.toString()}`);
+    } catch (e: any) {
+      console.error(e);
+      alert(e.shortMessage || e.message || 'Transaction failed');
+    } finally {
+      setIsPending(false);
+    }
   };
 
   const hasDevAccess = IS_DEV_MODE || isAdmin(address);
@@ -39,12 +61,28 @@ export default function LandingPage() {
               className="landing-enter-btn" 
               onClick={handleEnterDev} 
               style={{ borderColor: '#ff6600', color: '#ff6600', marginTop: '0.5rem' }}
+              disabled={isPending}
             >
               Enter Asylum (Dev Bypass)
             </button>
           )}
-          <button className="landing-enter-btn" onClick={handleEnterGame}>
-            Stake MON & Enter
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input 
+              type="text" 
+              value={stakeAmount} 
+              onChange={(e) => setStakeAmount(e.target.value)} 
+              style={{ padding: '8px', background: 'rgba(0,0,0,0.5)', border: '1px solid #444', color: '#fff', width: '80px', textAlign: 'center', fontFamily: '"Courier New", monospace' }}
+              disabled={isPending}
+            />
+            <span style={{ color: '#fff', fontSize: '0.9rem', fontFamily: '"Courier New", monospace' }}>MON</span>
+          </div>
+          <button 
+            className="landing-enter-btn" 
+            onClick={handleEnterGame}
+            disabled={isPending}
+            style={{ opacity: isPending ? 0.5 : 1, cursor: isPending ? 'not-allowed' : 'pointer' }}
+          >
+            {isPending ? 'Confirming...' : 'Stake & Enter'}
           </button>
         </div>
       ) : (

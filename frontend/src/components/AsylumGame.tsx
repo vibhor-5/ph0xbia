@@ -6,12 +6,18 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { useAccount, usePublicClient } from 'wagmi';
+import { useEscapeFlow } from '@/hooks/useEscapeRoom';
+import { supabase } from '@/lib/supabase/client';
 import type { WardConfig, WardObject } from '@/types/game';
 import { DEFAULT_SANITY_CONFIG } from '@/types/game';
 
-interface Props { wardConfig: WardConfig }
+interface Props { 
+  wardConfig: WardConfig;
+  sessionId: bigint;
+}
 
-export default function AsylumGame({ wardConfig }: Props) {
+export default function AsylumGame({ wardConfig, sessionId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const [sanity, setSanity] = useState(100);
@@ -20,28 +26,82 @@ export default function AsylumGame({ wardConfig }: Props) {
   const [msg, setMsg] = useState('');
   const [msgColor, setMsgColor] = useState('#8b0000');
   const [locked, setLocked] = useState(false);
-  const [outcome, setOutcome] = useState<'playing' | 'win'>('playing');
+  const [outcome, setOutcome] = useState<'playing' | 'escape_pending' | 'win' | 'error'>('playing');
   const [nearObj, setNearObj] = useState('');
+
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
+  const escapeFlow = useEscapeFlow();
 
   const showMsg = useCallback((t: string, c = '#8b0000') => {
     setMsg(t); setMsgColor(c);
     setTimeout(() => setMsg(''), 3500);
   }, []);
 
+  const onPuzzleSolved = useCallback(async (puzzleIdx: number) => {
+    if (!address) return;
+    try {
+      await supabase.from('task_state').insert({
+        session_id: sessionId.toString(),
+        player_addr: address.toLowerCase(),
+        coven_id: 1, // Single player coven default
+        action: 'puzzle_solved',
+        object_id: `puzzle_${puzzleIdx}`
+      });
+    } catch (e) {
+      console.error('Supabase write error:', e);
+    }
+  }, [address, sessionId]);
+
+  const onExitReached = useCallback(async () => {
+    setOutcome('escape_pending');
+    if (document.pointerLockElement) document.exitPointerLock();
+    try {
+      const tx = await escapeFlow(sessionId);
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash: tx });
+      }
+      setOutcome('win');
+    } catch (e: any) {
+      console.error(e);
+      setOutcome('error');
+    }
+  }, [escapeFlow, sessionId, publicClient]);
+
   useEffect(() => {
     if (!containerRef.current || engineRef.current) return;
     engineRef.current = new GameEngine(
       containerRef.current, wardConfig,
-      { setSanity, setClues, setPuzzles, showMsg, setOutcome, setLocked, setNearObj },
+      { setSanity, setClues, setPuzzles, showMsg, onPuzzleSolved, onExitReached, setLocked, setNearObj },
     );
     return () => { engineRef.current?.dispose(); engineRef.current = null; };
-  }, [wardConfig, showMsg]);
+  }, [wardConfig, showMsg, onPuzzleSolved, onExitReached]);
 
   if (outcome === 'win') {
     return (
       <div style={{ width: 800, height: 600, background: '#0a1a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px solid #1a1a2e', margin: '0 auto' }}>
-        <h1 style={{ fontFamily: 'serif', fontSize: '3rem', color: '#2d6a4f', textShadow: '0 0 30px rgba(45,106,79,0.5)' }}>YOU SURVIVED</h1>
-        <p style={{ color: '#6a8a6a', fontFamily: 'monospace', marginTop: 10 }}>The asylum releases its grip...</p>
+        <h1 style={{ fontFamily: 'serif', fontSize: '3rem', color: '#2d6a4f', textShadow: '0 0 30px rgba(45,106,79,0.5)' }}>YOU ESCAPED</h1>
+        <p style={{ color: '#6a8a6a', fontFamily: 'monospace', marginTop: 10 }}>Session resolved on Monad. Your reward is secure.</p>
+        <button onClick={() => window.location.href = '/'} style={{ marginTop: 24, padding: '10px 24px', background: 'none', border: '1px solid #2d6a4f', color: '#2d6a4f', cursor: 'pointer', fontFamily: 'monospace' }}>Return to Lobby</button>
+      </div>
+    );
+  }
+
+  if (outcome === 'escape_pending') {
+    return (
+      <div style={{ width: 800, height: 600, background: '#0a1a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px solid #1a1a2e', margin: '0 auto' }}>
+        <h1 style={{ fontFamily: 'serif', fontSize: '2rem', color: '#bfa14a', animation: 'pulse 1.5s infinite' }}>THE WARDEN IS WATCHING</h1>
+        <p style={{ color: '#6a8a6a', fontFamily: 'monospace', marginTop: 10 }}>Confirm the transaction in your wallet to unlock the door...</p>
+      </div>
+    );
+  }
+
+  if (outcome === 'error') {
+    return (
+      <div style={{ width: 800, height: 600, background: '#1a0a0a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '2px solid #3a0a0a', margin: '0 auto' }}>
+        <h1 style={{ fontFamily: 'serif', fontSize: '2rem', color: '#ff3333' }}>ESCAPE FAILED</h1>
+        <p style={{ color: '#aa5555', fontFamily: 'monospace', marginTop: 10 }}>The Warden rejected your proof or the chain reverted.</p>
+        <button onClick={() => setOutcome('playing')} style={{ marginTop: 24, padding: '10px 24px', background: 'none', border: '1px solid #ff3333', color: '#ff3333', cursor: 'pointer', fontFamily: 'monospace' }}>Try the door again</button>
       </div>
     );
   }
@@ -91,7 +151,8 @@ interface CB {
   setClues: (fn: (c: number) => number) => void;
   setPuzzles: (fn: (p: number) => number) => void;
   showMsg: (t: string, c?: string) => void;
-  setOutcome: (o: 'playing' | 'win') => void;
+  onPuzzleSolved: (idx: number) => void;
+  onExitReached: () => void;
   setLocked: (l: boolean) => void;
   setNearObj: (n: string) => void;
 }
@@ -162,6 +223,7 @@ class GameEngine {
   private clueCount = 0;
   private puzzleCount = 0;
   private exitMesh: THREE.Mesh | null = null;
+  private exitTriggered = false;
   private objMeshes: { mesh: THREE.Group; obj: WardObject; glow: THREE.Mesh; label: string }[] = [];
   private flickerLights: { light: THREE.PointLight; bulbMat: THREE.MeshStandardMaterial; speed: number; base: number }[] = [];
   private dustGeo: THREE.BufferGeometry | null = null;
@@ -672,6 +734,7 @@ class GameEngine {
           setTimeout(() => {
             this.puzzleCount++;
             this.cb.setPuzzles(() => this.puzzleCount);
+            this.cb.onPuzzleSolved(this.puzzleCount);
             this.cb.showMsg(`🧩 Puzzle ${this.puzzleCount}/3!`, '#2d6a4f');
             if (this.puzzleCount >= 3) setTimeout(() => this.spawnExit(), 1500);
           }, 2000 + i * 2500);
@@ -738,7 +801,10 @@ class GameEngine {
         this.cb.setSanity(() => this.sanity);
       }
       if (this.exitMesh && this.camera.position.distanceTo(this.exitMesh.position) < 1.5) {
-        this.cb.setOutcome('win');
+        if (!this.exitTriggered) {
+          this.exitTriggered = true;
+          this.cb.onExitReached();
+        }
       }
     }
 
