@@ -78,13 +78,24 @@ export default function AsylumGame({ wardConfig, sessionId, covenId = 0 }: Props
   const onPuzzleSolved = useCallback(async (puzzleIdx: number) => {
     if (!address) return;
     try {
-      await supabase.from('task_state').insert({
+      // 1. Ensure the session exists in Supabase (upsert)
+      await supabase.from('sessions').upsert({
+        session_id: sessionId.toString(),
+        seed: '0x0', // Placeholder until startSession is called or deterministic seed is used
+        is_coop: false,
+        status: 'active'
+      }, { onConflict: 'session_id' });
+
+      // 2. Insert the puzzle solved event
+      const { error } = await supabase.from('task_state').insert({
         session_id: sessionId.toString(),
         player_addr: address.toLowerCase(),
         coven_id: 1,
+        task_type: 'puzzle', // Required field
         action: 'puzzle_solved',
         object_id: `puzzle_${puzzleIdx}`
       });
+      if (error) console.error('Supabase task_state error:', error);
     } catch (e) {
       console.error('Supabase write error:', e);
     }
