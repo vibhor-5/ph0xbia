@@ -46,6 +46,10 @@ function PlayClient() {
 
   const { data: sessionData, isLoading, isError } = useSessionData(sessionId || 0n);
 
+  // Generate deterministic seed out of the sessionID if exists
+  const seed = sessionId ? `0x${sessionId.toString(16).padStart(64, '0')}` : DEV_SEED;
+  const wardConfig = useMemo(() => generateWard(seed, false), [seed]);
+
   useEffect(() => {
     if (!hasDevAccess && !rawSessionId) {
       alert("Unauthorized: Staking and active session required.");
@@ -67,9 +71,6 @@ function PlayClient() {
     );
   }
 
-  // Generate deterministic seed out of the sessionID if exists
-  const seed = sessionId ? `0x${sessionId.toString(16).padStart(64, '0')}` : DEV_SEED;
-  const wardConfig = useMemo(() => generateWard(seed, false), [seed]);
 
   if (isLoading && !hasDevAccess) {
     return <div style={{ color: 'white', textAlign: 'center', marginTop: '20vh' }}>Verifying on-chain session...</div>;
