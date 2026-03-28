@@ -182,7 +182,10 @@ contract PH0xBIA is ReentrancyGuard, Ownable {
         Session storage s = sessions[sessionId];
         if (msg.sender != s.host) revert NotHost();
         if (s.startTime != 0) revert SessionAlreadyStarted();
-        if (s.totalPlayers < 2) revert NotEnoughPlayers();
+        // The host always auto-joins on createSession, so totalPlayers >= 1
+        // is guaranteed. Any session — solo or co-op — can be started by the
+        // host alone. Co-op rooms simply won't have rival covens if others
+        // haven't joined yet, which is fine for single-player use.
 
         s.seed = keccak256(abi.encodePacked(sessionId, block.prevrandao));
         s.startTime = block.timestamp;
@@ -203,7 +206,16 @@ contract PH0xBIA is ReentrancyGuard, Ownable {
     function markEscaped(uint256 sessionId, bytes calldata wardenSig) external {
         if (!sessionExists[sessionId]) revert SessionNotFound();
         Session storage s = sessions[sessionId];
-        if (s.startTime == 0) revert SessionNotStarted();
+
+        // Solo sessions that were created without an explicit startSession call
+        // (the single-player fast-track flow) are auto-started here so the
+        // on-chain escape proof and reward claim still work correctly.
+        if (s.startTime == 0) {
+            if (s.isCoOp) revert SessionNotStarted(); // co-op must call startSession explicitly
+            s.seed = keccak256(abi.encodePacked(sessionId, block.prevrandao));
+            s.startTime = block.timestamp;
+            emit SessionStarted(sessionId, s.seed, block.timestamp);
+        }
         if (s.resolved || s.expired) revert SessionAlreadyResolved();
         if (!s.isPlayer[msg.sender]) revert NotAWinner(); // reuse: player not in session
         if (s.hasEscaped[msg.sender]) revert AlreadyEscaped();

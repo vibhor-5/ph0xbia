@@ -153,7 +153,7 @@ export function useMultiplayer({
   return {
     remotePlayers,
     chatMessages,
-    onlineCount,
+    onlineCount: Math.max(onlineCount, isConnected ? 1 : 0),
     escapedPlayers,
     broadcastPosition,
     broadcastSanity,

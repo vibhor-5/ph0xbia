@@ -1,10 +1,13 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import * as dotenv from "dotenv";
+// Load from contracts/.env.local first, then fall back to root .env.local
 dotenv.config({ path: ".env.local" });
+dotenv.config({ path: "../.env.local" });
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "0x" + "00".repeat(32);
-const MONAD_TESTNET_RPC = process.env.NEXT_PUBLIC_MONAD_RPC_URL || "https://testnet-rpc.monad.xyz";
+const MONAD_TESTNET_RPC =
+  process.env.NEXT_PUBLIC_MONAD_RPC_URL || "https://testnet-rpc.monad.xyz";
 
 const config: HardhatUserConfig = {
   solidity: {
