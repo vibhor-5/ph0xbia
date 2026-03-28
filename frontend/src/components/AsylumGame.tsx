@@ -908,6 +908,117 @@ class GameEngine {
       blood.rotation.x = -Math.PI / 2; blood.position.set(bx, 0.005, bz);
       this.scene.add(blood);
     });
+
+    // ═══ CENTER-ROOM HORROR PROPS ═══
+
+    // ── Large pentagram / ritual circle on the floor (dead center) ──
+    const pentMat = new THREE.MeshStandardMaterial({ color: 0x5a0000, transparent: true, opacity: 0.4, roughness: 1, side: THREE.DoubleSide });
+    const pentCircle = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.35, 32), pentMat);
+    pentCircle.rotation.x = -Math.PI / 2; pentCircle.position.set(0, 0.006, 0);
+    this.scene.add(pentCircle);
+    // Inner circle
+    const innerCircle = new THREE.Mesh(new THREE.RingGeometry(0.8, 0.85, 32), pentMat.clone());
+    innerCircle.rotation.x = -Math.PI / 2; innerCircle.position.set(0, 0.007, 0);
+    this.scene.add(innerCircle);
+    // Star lines (pentagram)
+    const starMat = new THREE.MeshStandardMaterial({ color: 0x5a0000, transparent: true, opacity: 0.35, roughness: 1 });
+    for (let i = 0; i < 5; i++) {
+      const angle1 = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+      const angle2 = ((i * 2 + 2) * Math.PI) / 5 - Math.PI / 2;
+      const x1 = Math.cos(angle1) * 1.1, z1 = Math.sin(angle1) * 1.1;
+      const x2 = Math.cos(angle2) * 1.1, z2 = Math.sin(angle2) * 1.1;
+      const dx = x2 - x1, dz = z2 - z1;
+      const len = Math.sqrt(dx * dx + dz * dz);
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(0.03, len), starMat);
+      line.position.set((x1 + x2) / 2, 0.008, (z1 + z2) / 2);
+      line.rotation.x = -Math.PI / 2;
+      line.rotation.z = -Math.atan2(dz, dx);
+      this.scene.add(line);
+    }
+
+    // ── Broken wheelchair in the center-right ──
+    const wcGroup = new THREE.Group();
+    const wcMetal = new THREE.MeshStandardMaterial({ map: this.tex('metal', 1, 1), roughness: 0.65, metalness: 0.5, color: 0x555555 });
+    // Seat
+    wcGroup.add(this.box(0.48, 0.03, 0.42, 0, 0.45, 0, wcMetal));
+    // Back
+    wcGroup.add(this.box(0.48, 0.5, 0.03, 0, 0.7, -0.2, wcMetal.clone()));
+    // Armrests
+    wcGroup.add(this.box(0.03, 0.18, 0.35, -0.23, 0.55, 0.05, wcMetal.clone()));
+    wcGroup.add(this.box(0.03, 0.18, 0.35, 0.23, 0.55, 0.05, wcMetal.clone()));
+    // Wheels
+    [-0.28, 0.28].forEach((wx) => {
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 8, 16), wcMetal.clone());
+      wheel.rotation.y = Math.PI / 2; wheel.position.set(wx, 0.24, 0); wcGroup.add(wheel);
+    });
+    wcGroup.position.set(2, 0, 0.5);
+    wcGroup.rotation.y = -0.3; wcGroup.rotation.z = 0.15; // slightly tilted
+    this.scene.add(wcGroup);
+
+    // ── IV drip stand with blood bag (center-left) ──
+    const ivGroup = new THREE.Group();
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.4, metalness: 0.6 });
+    // Pole
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.8, 6), poleMat);
+    pole.position.y = 0.9; ivGroup.add(pole);
+    // Base cross
+    ivGroup.add(this.box(0.4, 0.02, 0.04, 0, 0.01, 0, poleMat.clone()));
+    ivGroup.add(this.box(0.04, 0.02, 0.4, 0, 0.01, 0, poleMat.clone()));
+    // Hook at top
+    const hook = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.008, 6, 8, Math.PI), poleMat.clone());
+    hook.position.set(0, 1.82, 0); hook.rotation.x = Math.PI; ivGroup.add(hook);
+    // Blood bag
+    const bagMat = new THREE.MeshStandardMaterial({ color: 0x660000, transparent: true, opacity: 0.85, roughness: 0.8 });
+    const bag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.03), bagMat);
+    bag.position.set(0, 1.65, 0); ivGroup.add(bag);
+    // Tube dangling
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.5, 4), new THREE.MeshStandardMaterial({ color: 0x440000, transparent: true, opacity: 0.7 }));
+    tube.position.set(0.02, 1.32, 0); tube.rotation.z = 0.1; ivGroup.add(tube);
+    ivGroup.position.set(-0.8, 0, -0.5);
+    this.scene.add(ivGroup);
+
+    // ── Scattered bones on the floor ──
+    const boneMat = new THREE.MeshStandardMaterial({ color: 0xd4c8a0, roughness: 0.9 });
+    [[0.3, 1.5, 0.3], [-0.5, -0.8, -0.5], [1.2, -1.5, 0.8], [-1.0, 0.5, 1.2], [0.8, 0.8, -0.3]].forEach(([bx, bz, rot]) => {
+      const bone = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.12, 4, 6), boneMat);
+      bone.position.set(bx, 0.012, bz); bone.rotation.y = rot; bone.rotation.z = Math.PI / 2;
+      this.scene.add(bone);
+    });
+    // Skull (center of pentagram)
+    const skullMat = new THREE.MeshStandardMaterial({ color: 0xccc0a0, roughness: 0.85 });
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), skullMat);
+    skull.position.set(0, 0.08, 0); skull.scale.set(1, 0.85, 1.1);
+    this.scene.add(skull);
+    // Jaw
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.05), skullMat.clone());
+    jaw.position.set(0, 0.02, 0.06); jaw.rotation.x = 0.2;
+    this.scene.add(jaw);
+
+    // ── Blood drag marks across the floor ──
+    const dragMat = new THREE.MeshStandardMaterial({ color: 0x3a0000, transparent: true, opacity: 0.3, roughness: 1, side: THREE.DoubleSide });
+    // Long drag streak from center to back wall
+    const drag1 = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 4), dragMat);
+    drag1.rotation.x = -Math.PI / 2; drag1.position.set(0.3, 0.004, -2.5); drag1.rotation.z = 0.1;
+    this.scene.add(drag1);
+    // Shorter drag from center toward left wall
+    const drag2 = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 2.5), dragMat.clone());
+    drag2.rotation.x = -Math.PI / 2; drag2.position.set(-1.5, 0.004, 0.5); drag2.rotation.z = 1.2;
+    this.scene.add(drag2);
+
+    // ── More blood splatters in center ──
+    [[0.5, 0.5, 0.35], [-0.3, -0.5, 0.25], [1.5, 0, 0.3], [-1, 1, 0.4], [0, -1.5, 0.5]].forEach(([sx, sz, sr]) => {
+      const splat = new THREE.Mesh(new THREE.CircleGeometry(sr, 10), bloodMat.clone());
+      splat.rotation.x = -Math.PI / 2; splat.position.set(sx, 0.004, sz);
+      this.scene.add(splat);
+    });
+
+    // ── Hanging noose from center ceiling ──
+    const ropeMat = new THREE.MeshStandardMaterial({ color: 0x7a6a50, roughness: 0.95 });
+    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 1.5, 4), ropeMat);
+    rope.position.set(0, 3.05, -2); this.scene.add(rope);
+    const noose = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.012, 6, 12, Math.PI * 1.5), ropeMat.clone());
+    noose.position.set(0, 2.25, -2); noose.rotation.y = Math.PI / 4;
+    this.scene.add(noose);
   }
 
   private box(w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material): THREE.Mesh {
